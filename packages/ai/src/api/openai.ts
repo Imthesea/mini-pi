@@ -2,18 +2,9 @@
  * OpenAI Provider 实现。
  * 共用代码见 `./openai-compat-base.js`,本文件仅承载 OpenAI 特有配置。
  *
- * DeepSeek 已拆为独立文件 `./deepseek.js`,这里不再包含 DeepSeek 相关代码。
- *
- * 为了向后兼容,本文件仍 re-export 共用符号,直到 Task 3 清理为止。
+ * 任何新增 OpenAI 兼容 Provider(如 moonshot / qwen)请放在独立文件中继承
+ * `BaseOpenAICompatProvider`,不要把代码塞回本文件。
  */
-
-export {
-  mapOpenAIFinishReason,
-  _convertMessages,
-  openAICompatibleStream,
-  BaseOpenAICompatProvider,
-  type OpenAICompatConfig,
-} from "./openai-compat-base.js";
 
 import type { Provider } from "../provider/index.js";
 import type { Model } from "../types.js";

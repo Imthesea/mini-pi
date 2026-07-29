@@ -8,7 +8,7 @@
 
 import { Type } from "typebox";
 import { createModels } from "../src/provider/index.js";
-import { deepseekProvider } from "../src/api/openai.js";
+import { deepseekProvider } from "../src/api/deepseek.js";
 import { envApiKey } from "../src/auth/index.js";
 import type { Tool, Message, AssistantMessage } from "../src/types.js";
 

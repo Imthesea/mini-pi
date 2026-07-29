@@ -3,7 +3,7 @@
  * 覆盖：reasoning_content 回传、tool_calls 序列化、tool 消息格式。
  */
 import { describe, it, expect } from "vitest";
-import { _convertMessages, mapOpenAIFinishReason } from "../api/openai.js";
+import { _convertMessages, mapOpenAIFinishReason } from "../api/openai-compat-base.js";
 import type { Context, UserMessage, AssistantMessage, ToolResultMessage } from "../types.js";
 
 function makeUser(text: string): UserMessage {
