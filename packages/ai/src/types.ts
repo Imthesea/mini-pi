@@ -155,8 +155,6 @@ export interface StreamOptions {
   signal?: AbortSignal;
   apiKey?: string;
   reasoning?: boolean | "low" | "medium" | "high";
-  /** 可重试的最大次数（不含首次调用）。默认 3。设为 0 禁用重试。 */
-  maxRetries?: number;
   /** 请求发出前的回调：可检查或替换原始请求体，用于 debug */
   onPayload?: (payload: unknown, model: Model<Api>) => unknown | undefined | Promise<unknown | undefined>;
   /** 收到 HTTP 响应后的回调：可检查响应头、状态码等元信息 */

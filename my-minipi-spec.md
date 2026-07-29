@@ -23,6 +23,8 @@ pi 是一个功能完善的四层 Agent CLI 项目，但它面向的是"通用 C
 - **Provider 过多**：~35 个 Provider，维护成本高，大多数用户只用 2-3 个
 - **耦合过深**：各层之间有复杂的依赖和事件系统，不利于理解和二次开发
 
+精简目标：从 pi 的 `packages/ai`（~25,000 行，35+ Provider）抽出最小化可运行的 AI 层（约 1,200 行，3 个 Provider）。
+
 ### 1.2 目标
 
 打造一个**自己的 Agent 项目**，核心原则：
@@ -132,24 +134,27 @@ my-mimipi/                  # ✅ Phase 01 完成
     src/
       index.ts
       types.ts
-      auth/index.ts         # envApiKey() + dotenv
+      auth/index.ts         # envApiKey() + dotenv 自动加载
       provider/index.ts     # Provider 接口 + ModelsImpl + createModels()
       stream/index.ts       # EventStream + AssistantMessageEventStream
       api/
-        openai.ts           # OpenAI + DeepSeek（真实 API ✅）
         anthropic.ts        # Anthropic Messages API（真实 SDK ✅）
+        openai.ts           # OpenAI Provider（继承 BaseOpenAICompatProvider）
+        deepseek.ts         # DeepSeek Provider（继承 BaseOpenAICompatProvider）
+        openai-compat-base.ts # OpenAI 兼容家族共用基类与工具
       utils/
-        transform-messages.ts
+        transform-messages.ts  # 图片降级
         assistant-message.ts
-        retry.ts, error-body.ts
-      __tests__              # 7 文件, 55 tests ✅
+        retry.ts             # isRetryableAssistantError 错误分类
+        error-body.ts        # normalizeProviderError
+      __tests__/             # 7 文件, 51 tests ✅
     examples/
-      01-core-types.ts      ✅
-      02-anthropic-mock.ts  ✅
-      03-deepseek-chat.ts   ✅
-      04-openai-mock.ts     ✅
-      06-tool-use.ts        ✅
-      07-multi-turn.ts      ✅
+      01-core-types.ts        ✅  类型系统验证
+      02-anthropic-mock.ts    ✅  Anthropic 框架（mock，经批准）
+      03-deepseek-chat.ts     ✅  DeepSeek 真实 API 流式对话
+      04-openai-mock.ts       ✅  OpenAI 框架（mock，经批准）
+      06-tool-use.ts          ✅  工具调用
+      07-multi-turn.ts        ✅  多轮对话
 
     agent/                  # 第二期（后面再做）
     coding-agent/           # 第三期（后面再做）
@@ -157,7 +162,9 @@ my-mimipi/                  # ✅ Phase 01 完成
   docs/
     my-minipi-spec.md
     superpowers/specs/2026-07-29-phase01-ai-core-design.md
+    superpowers/specs/2026-07-29-openai-decompose-design.md
     superpowers/plans/2026-07-29-phase01-ai-core-plan.md
+    superpowers/plans/2026-07-29-openai-decompose-plan.md
     project-log/phase-01-ai-core/log.md
 ```
 
@@ -178,15 +185,15 @@ my-mimipi/                  # ✅ Phase 01 完成
 
 （待展开：Model, Context, Message, Tool, AssistantMessage, StreamOptions 等接口定义）
 
-### 3.2 事件流 (`stream.ts`)
+### 3.2 事件流 (`stream/index.ts`)
 
 （待展开：EventStream 类的接口和实现要点）
 
-### 3.3 Provider 与 Models (`provider.ts`)
+### 3.3 Provider 与 Models (`provider/index.ts`)
 
 （待展开：Provider 接口精简版、Models 接口精简版、createModels 工厂）
 
-### 3.4 认证 (`auth.ts`)
+### 3.4 认证 (`auth/index.ts`)
 
 （待展开：envApiKey 的单函数实现）
 
@@ -194,17 +201,17 @@ my-mimipi/                  # ✅ Phase 01 完成
 
 （待展开：如何调用 Anthropic Messages API，消息和工具的格式转换）
 
-### 3.6 API 实现 — OpenAI + DeepSeek (`api/openai.ts`)
+### 3.6 API 实现 — OpenAI 兼容家族 (`api/openai-compat-base.ts` + `api/openai.ts` + `api/deepseek.ts`)
 
-（待展开：OpenAI Completions API，两个 Provider 共用实现，通过 baseUrl + env var 区分）
+3 个文件：`openai-compat-base.ts` 承载 OpenAI 兼容家族的共用基类与工具（`BaseOpenAICompatProvider` 抽象类 + `_convertMessages` / `convertTools` / `openAICompatibleStream` / `buildAssistantMessage` / `mapOpenAIFinishReason`），`openai.ts` 与 `deepseek.ts` 各自只承载自家配置并继承基类。差异点（`baseUrl` / `envVar` / `reasoningFormat`）通过 `OpenAICompatConfig` 注入。
 
-### 3.7 消息规范化 (`api/transform-messages.ts`)
+### 3.7 消息规范化 (`utils/transform-messages.ts`)
 
 （待展开：简化版，只做图片降级）
 
 ### 3.8 错误处理 (`utils/retry.ts` + `utils/error-body.ts`)
 
-（待展开：错误分类、重试判断）
+（待展开：错误分类、错误规范化；**重试责任放在 agent 层**，AI 层只做错误分类与报告，不做退避循环）
 
 ---
 
@@ -254,32 +261,33 @@ Phase 7: 集成验证 + 样例           (端到端)
 - [x] `auth/index.ts`：`envApiKey()` + dotenv 自动加载
 - [x] `provider/index.ts`：Provider 接口 + ModelsImpl + createModels()
 - [x] `index.ts`：公共 API 导出
-- [x] 样例 `examples/02-auth-and-models.ts`：注册真实 openaiProvider、查模型、流式调用
+- [x] 模块目录化重构：`auth/` / `provider/` / `stream/` 各自独立目录，`index.ts` 导出（`commit faffffc`）
 
 ### 4.5 Phase 4+5：Anthropic + OpenAI API ✅
 
-**目标**：Anthropic（mock）+ OpenAI（真实 API 需代理）
+**目标**：Anthropic 真实 SDK + OpenAI 真实 API（需代理）
 
 **实际产出**：
 - Anthropic：`src/api/anthropic.ts` — 真实 SDK 实现（`@anthropic-ai/sdk`）
-- OpenAI：`src/api/openai.ts` — openaiProvider() + 消息转换 + 流式事件映射
+- OpenAI：`src/api/openai-compat-base.ts`（共用基类 + 工具）+ `src/api/openai.ts`（`openaiProvider()`，继承基类）
 - 共用：`src/utils/transform-messages.ts`
 
 **交付标准 (DoD)**：
 - [x] `api/anthropic.ts`：真实 SDK 实现，依赖 ANTHROPIC_API_KEY
-- [x] `api/openai.ts`：openaiProvider() + stream 实现（代码就绪，需代理验证）
-- [x] 消息/工具格式转换、流式事件映射
-- [x] 样例 `examples/02` 改用真实 openaiProvider（⚠️ 需代理）
+- [x] `api/openai-compat-base.ts` + `api/openai.ts`：openaiProvider() + 消息/工具转换 + 流式事件映射（代码就绪，需代理验证）
+- [x] 样例 `examples/02-anthropic-mock.ts`（mock 框架演示）、`examples/04-openai-mock.ts`（mock 框架演示）
 
 ### 4.6 Phase 6：DeepSeek API 实现 ✅
 
-**目标**：DeepSeek 复用 OpenAI 实现，真实 API 验证通过
+**目标**：DeepSeek 独立 Provider，真实 API 验证通过
 
-**实际产出**：`src/api/openai.ts`（新增 `deepseekProvider()`）
+**实际产出**：`src/api/deepseek.ts`（继承 `BaseOpenAICompatProvider`） + `src/api/openai-compat-base.ts`（抽离共用基类，承载 OpenAI 兼容家族逻辑）
 
 **交付标准 (DoD)**：
-- [x] `deepseekProvider()` 导出，baseUrl 指向 `https://api.deepseek.com`
+- [x] `deepseekProvider()` 导出在 `src/api/deepseek.ts`，baseUrl 指向 `https://api.deepseek.com`
 - [x] reasoning 格式使用 DeepSeek style（`thinking: { type }`）
+- [x] `openai-compat-base.ts` 抽象出 `BaseOpenAICompatProvider` + `openAICompatibleStream` 共用逻辑
+- [x] `openai.ts` 与 `deepseek.ts` 只承载自家配置，不重复实现
 - [x] 样例 `examples/03-deepseek-chat.ts`：流式输出 ✅
 - [x] 样例 `examples/06-tool-use.ts`：工具调用 ✅
 - [x] 样例 `examples/07-multi-turn.ts`：多轮对话 ✅
@@ -288,14 +296,14 @@ Phase 7: 集成验证 + 样例           (端到端)
 
 **目标**：错误分类、工具调用、多轮对话，端到端验证
 
-**实际产出**：`src/utils/retry.ts`（10 tests）, `src/utils/error-body.ts`
+**实际产出**：`src/utils/retry.ts`（错误分类）+ `src/utils/error-body.ts`（错误规范化），`src/utils/assistant-message.ts`
 
 **交付标准 (DoD)**：
 - [x] `06-tool-use.ts`：DeepSeek 真实 API，模型正确调用 `get_weather({"city":"北京"})`
 - [x] `07-multi-turn.ts`：用户消息 → 工具调用 → 结果注入 → 最终回答 ✅
 - [x] 修复：消息转换支持 `reasoning_content` 回传（DeepSeek 要求）
-- [x] 错误处理：未设 Key 清晰提示，错误分类正确
-- [x] `tsc --noEmit` 零错误，`vitest run` 29 passed
+- [x] 错误处理：未设 Key 清晰提示，错误分类正确（`isRetryableAssistantError`）
+- [x] `tsc --noEmit` 零错误，`vitest run` 51 passed
 
 ---
 
@@ -362,21 +370,25 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 
 ## 6. 附录
 
+> **当前状态: Phase 01 完成 ✅** — 51 tests passed, 3 轮代码审查通过
+> 详见 `docs/project-log/phase-01-ai-core/log.md`
+
 ### 6.1 pi 项目关键文件索引
 
 | 文件 | 作用 |
 |------|------|
-> **当前状态: Phase 01 完成 ✅** — 41 tests passed, 3 轮代码审查通过
-> 详见 `docs/project-log/phase-01-ai-core/log.md`
-
-| 文件 | 作用 |
-|------|------|
 | `packages/ai/src/types.ts` | 核心类型定义 |
-| `packages/ai/src/provider/index.ts` | Provider/Models/CreateModels |
+| `packages/ai/src/auth/index.ts` | `envApiKey()` + dotenv 自动加载 |
+| `packages/ai/src/provider/index.ts` | Provider 接口 + ModelsImpl + createModels() |
 | `packages/ai/src/stream/index.ts` | EventStream 实现（从 pi 原样） |
-| `packages/ai/src/auth/index.ts` | envApiKey + dotenv |
-| `packages/ai/src/api/openai.ts` | OpenAI + DeepSeek Provider |
 | `packages/ai/src/api/anthropic.ts` | Anthropic Provider（真实 SDK） |
+| `packages/ai/src/api/openai-compat-base.ts` | OpenAI 兼容家族共用基类（`BaseOpenAICompatProvider` + 工具） |
+| `packages/ai/src/api/openai.ts` | OpenAI Provider（继承基类，48 行） |
+| `packages/ai/src/api/deepseek.ts` | DeepSeek Provider（继承基类） |
+| `packages/ai/src/utils/transform-messages.ts` | 图片降级 |
+| `packages/ai/src/utils/retry.ts` | 错误分类（`isRetryableAssistantError`，供 agent 层判断是否重试） |
+| `packages/ai/src/utils/error-body.ts` | 错误规范化（`normalizeProviderError`） |
+| `packages/ai/src/utils/assistant-message.ts` | `createErrorAssistantMessage` 辅助函数 |
 
 ### 6.2 参考文档
 

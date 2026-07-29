@@ -1,20 +1,20 @@
 # openai.ts 拆分设计 Spec
 
 > 日期: 2026-07-29
-> 状态: 待用户审查
+> 状态: ✅ 已完成（commits `3722301` / `97590e8` / `4c3519b`）
 > 范围: `packages/ai/src/api/openai.ts` 重构 —— 把 OpenAI 和 DeepSeek 各自拆为独立实现,共用部分提到抽象基类
 
 ## 1. 背景与目标
 
-### 1.1 现状
+### 1.1 现状（已实施）
 
-`packages/ai/src/api/openai.ts` (496 行) 当前同时承载两个 Provider:
+`packages/ai/src/api/openai.ts`（拆分前 496 行 → 拆分后 48 行）原本同时承载两个 Provider:
 - `openaiProvider()` —— OpenAI
 - `deepseekProvider()` —— DeepSeek
 
-两者通过 `createOpenAICompatibleProvider(config)` 工厂函数复用同一套流式核心,差异点通过 `config.reasoningFormat: "openai" | "deepseek"` 字段区分。
+两者原本通过 `createOpenAICompatibleProvider(config)` 工厂函数复用同一套流式核心,差异点通过 `config.reasoningFormat: "openai" | "deepseek"` 字段区分。
 
-文件头注释已标注"后续扩展:DeepSeek Provider 也在这个文件中(共用 OpenAI 兼容实现)" —— 该注释说明当前的"共写一文件"是有意为之的临时方案,现在要按"各自实现各自"的方向收尾。
+本次重构后，工厂函数被替换为抽象类 `BaseOpenAICompatProvider`，OpenAI 与 DeepSeek 各自成为独立子类。
 
 ### 1.2 问题
 
@@ -302,10 +302,10 @@ pnpm tsc --noEmit
 
 # 2. 单元测试
 pnpm vitest run
-# 期望: 55/55 通过(测试只改 import 路径,逻辑不变)
+# 期望: 51/51 通过(测试只改 import 路径,逻辑不变;后续移除重试循环测试后由 55 → 51)
 
 # 3. 集成验证 (examples)
-npx tsx examples/02-openai-mock.ts     # OpenAI 框架走通(mock)
+npx tsx examples/04-openai-mock.ts     # OpenAI 框架走通(mock)
 npx tsx examples/03-deepseek-chat.ts   # DeepSeek 真实流式
 npx tsx examples/06-tool-use.ts        # 工具调用
 npx tsx examples/07-multi-turn.ts      # 多轮对话

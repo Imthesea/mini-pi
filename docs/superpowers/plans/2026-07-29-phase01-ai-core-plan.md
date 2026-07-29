@@ -2,6 +2,20 @@
 
 > **对于 agentic workers:** 使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 来逐任务实施此计划。步骤使用 `- [ ]` 复选框跟踪。
 
+> **本文档状态（2026-07-29）：历史计划，已完成。**
+>
+> 本计划是 Phase 01 实施前的初稿。实际实施中发现若干偏差，已通过 Phase 2/3 重构（`commit faffffc` 模块目录化 + `commit 3722301`/`97590e8`/`4c3519b` openai.ts 拆分）修正：
+>
+> - 单文件 `auth.ts` / `stream.ts` / `provider.ts` → 目录形式 `auth/index.ts` / `stream/index.ts` / `provider/index.ts`
+> - `src/api/transform-messages.ts` → `src/utils/transform-messages.ts`
+> - `src/api/openai.ts`（承载 OpenAI + DeepSeek）→ 拆分为 `openai.ts` + `deepseek.ts` + 共用基类 `openai-compat-base.ts`
+> - `utils/text.ts`（contentText）从未创建，移除
+> - examples 文件名变更：`02-auth-and-models` / `03-anthropic-chat` / `04-openai-chat` / `05-deepseek-chat` 实际为 `02-anthropic-mock` / `04-openai-mock` / `03-deepseek-chat` / `06-tool-use` / `07-multi-turn`
+> - `ModelsImpl.complete()` 中的重试循环已移出（重试责任在 agent 层）
+> - ModelCost / Usage 删除 cacheRead / cacheWrite 字段
+>
+> 以下各 Task 的代码块为"计划稿"——可能与最终代码有细节差异，以仓库代码与 `docs/project-log/phase-01-ai-core/log.md` 为准。
+
 **目标：** 从零搭建 `@mimi/ai` 包——最小化多 Provider LLM API 层，支持 Anthropic/OpenAI/DeepSeek 流式调用。
 
 **架构：** monorepo（`pnpm workspaces`），先建 `packages/ai`。核心抽象：Provider 接口 → Models 集合 → stream() 分发。类型系统从 pi 精简而来，认证只用 env var + dotenv，事件流原样保留 pi 的 EventStream。
@@ -357,7 +371,7 @@ export type AssistantMessageEvent =
  * 无需 API Key。
  */
 
-import type { Model, Context, UserMessage, AssistantMessage } from "../src/types.ts";
+import type { Model, Context, UserMessage, AssistantMessage } from "../src/types.js";
 
 // 创建模型定义
 const model: Model<"anthropic-messages"> = {
@@ -435,7 +449,7 @@ git commit -m "feat: Task 1 — monorepo 脚手架 + 核心类型定义
 **目标**：从 pi 原样导入 EventStream + AssistantMessageEventStream，添加 vitest 测试。
 
 **产出文件**：
-- `packages/ai/src/stream.ts`
+- `packages/ai/src/stream/index.ts`
 - `packages/ai/src/__tests__/stream.test.ts`
 
 **接口约定**：
@@ -519,7 +533,7 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
   }
 }
 
-import type { AssistantMessage, AssistantMessageEvent } from "./types.ts";
+import type { AssistantMessage, AssistantMessageEvent } from "./types.js";
 
 /**
  * LLM 专用事件流。
@@ -547,8 +561,8 @@ export class AssistantMessageEventStream extends EventStream<AssistantMessageEve
  * EventStream 和 AssistantMessageEventStream 的单元测试。
  */
 import { describe, it, expect } from "vitest";
-import { EventStream, AssistantMessageEventStream } from "../stream.ts";
-import type { AssistantMessage } from "../types.ts";
+import { EventStream, AssistantMessageEventStream } from ;
+import type { AssistantMessage } from "../types.js";
 
 describe("EventStream", () => {
   it("推送事件后可以异步迭代消费", async () => {
@@ -680,7 +694,7 @@ git commit -m "feat: Task 2 — EventStream 事件流实现
 - `packages/ai/src/index.ts`
 - `packages/ai/src/__tests__/auth.test.ts`
 - `packages/ai/src/__tests__/provider.test.ts`
-- `packages/ai/examples/02-auth-and-models.ts`
+- `packages/ai/examples/02-anthropic-mock.ts`（原计划 02-auth-and-models.ts，移至 Task 4 实施）
 
 **接口约定**：
 - 产生：`envApiKey(envVar)` 函数
@@ -733,7 +747,7 @@ export function envApiKey(envVar: string): string | undefined {
  * envApiKey 的单元测试。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { envApiKey } from "../auth.ts";
+import { envApiKey } from "../auth/index.js";
 
 describe("envApiKey", () => {
   const VAR = "TEST_MIMI_API_KEY";
@@ -782,8 +796,8 @@ import type {
   Context,
   Model,
   StreamOptions,
-} from "./types.ts";
-import { envApiKey } from "./auth.ts";
+} from "./types.js";
+import { envApiKey } from "./auth.js";
 
 // ── 错误类 ──
 
@@ -940,10 +954,10 @@ export function createModels(): Models {
  * Provider 与 Models 的单元测试（使用 mock Provider，无需 API Key）。
  */
 import { describe, it, expect } from "vitest";
-import { createModels, ModelsError } from "../provider.ts";
-import type { Provider, Models } from "../provider.ts";
-import { AssistantMessageEventStream } from "../stream.ts";
-import type { Api, Model, Context, StreamOptions } from "../types.ts";
+import { createModels, ModelsError } from "../provider/index.js";
+import type { Provider, Models } from "../provider/index.js";
+import { AssistantMessageEventStream } from "../stream/index.js";
+import type { Api, Model, Context, StreamOptions } from "../types.js";
 
 /** 创建一个 mock Provider 用于测试 */
 function mockProvider(): Provider<Api> {
@@ -1093,21 +1107,21 @@ describe("Models", () => {
  */
 
 // 核心框架
-export { createModels } from "./provider.ts";
-export type { Provider, Models } from "./provider.ts";
-export { ModelsError } from "./provider.ts";
+export { createModels } from "./provider/index.js";
+export type { Provider, Models } from "./provider/index.js";
+export { ModelsError } from "./provider/index.js";
 
 // 事件流
-export { EventStream, AssistantMessageEventStream } from "./stream.ts";
+export { EventStream, AssistantMessageEventStream } from "./stream.js";
 
 // 认证
-export { envApiKey } from "./auth.ts";
+export { envApiKey } from "./auth.js";
 
 // 类型（全部 re-export）
-export type * from "./types.ts";
+export type * from "./types.js";
 ```
 
-- [ ] **Step 6: 创建 examples/02-auth-and-models.ts**
+- [ ] **Step 6: 创建 examples/02-anthropic-mock.ts**（原计划 02-auth-and-models.ts，后调整为 Anthropic 框架 mock 演示，移至 Task 4 实施）
 
 ```typescript
 /**
@@ -1116,11 +1130,11 @@ export type * from "./types.ts";
  * 无需 API Key。
  */
 
-import { createModels } from "../src/provider.ts";
-import { AssistantMessageEventStream } from "../src/stream.ts";
-import { envApiKey } from "../src/auth.ts";
-import type { Provider, Models } from "../src/provider.ts";
-import type { Api, Model, Context } from "../src/types.ts";
+import { createModels } from "../src/provider.js";
+import { AssistantMessageEventStream } from "../src/stream.js";
+import { envApiKey } from "../src/auth.js";
+import type { Provider, Models } from "../src/provider.js";
+import type { Api, Model, Context } from "../src/types.js";
 
 // ── 构建 mock Provider ──
 function createMockProvider(): Provider<Api> {
@@ -1237,10 +1251,10 @@ npx vitest run
 
 ```bash
 cd F:\allProject\githubProject\my-mimipi\packages\ai
-npx tsx examples/02-auth-and-models.ts
+npx tsx examples/02-anthropic-mock.ts
 ```
 
-预期输出：显示环境变量状态 + mock Provider 调用成功。
+预期输出：Anthropic 框架 mock 流程演示成功。
 
 - [ ] **Step 9: Commit**
 
@@ -1262,41 +1276,26 @@ git commit -m "feat: Task 3 — 认证 + Provider/Models 框架
 **目标**：实现 Anthropic Messages API 流式调用。这是第一个需要真实 API Key 的 Task。
 
 **产出文件**：
-- `packages/ai/src/utils/text.ts`
-- `packages/ai/src/api/transform-messages.ts`
+- `packages/ai/src/utils/transform-messages.ts`（原计划 `api/transform-messages.ts`，Phase 2 重构时迁移）
 - `packages/ai/src/api/anthropic.ts`
 - `packages/ai/src/__tests__/transform-messages.test.ts`
-- `packages/ai/examples/03-anthropic-chat.ts`
+- `packages/ai/examples/02-anthropic-mock.ts`（原计划 03-anthropic-chat.ts，后调整为 mock 框架演示）
 
 **接口约定**：
 - 产生：`anthropicProvider(): Provider<"anthropic-messages">`
 - 产生：`transformMessages(messages, model)` 消息规范化
-- 产生：`contentText(content)` 辅助函数
-- 消费：`types.ts`, `stream.ts`, `provider.ts`, `auth.ts`, `utils/text.ts`, `api/transform-messages.ts`
+- 消费：`types.ts`, `stream/index.ts`, `provider/index.ts`, `auth/index.ts`, `utils/transform-messages.ts`
 
-- [ ] **Step 1: 创建 utils/text.ts**
+- [ ] **Step 1: 创建 utils/transform-messages.ts**（原 `api/transform-messages.ts`，不再单独建 utils/text.ts —— contentText 实际未被消费）
 
 ```typescript
 /**
- * 文本相关的辅助函数。
+ * 注：原计划在此 Step 创建 utils/text.ts（contentText 辅助函数），实际未创建
+ * —— 重构阶段评估 contentText 无消费方，移除以减少代码体积。
+ * 如未来需要再补建。
  */
 
-import type { TextContent } from "../types.ts";
-
-/** 从内容块数组中提取纯文本 */
-export function contentText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((c): c is TextContent => typeof c === "object" && c !== null && (c as any).type === "text")
-      .map((c) => c.text)
-      .join("");
-  }
-  return "";
-}
-```
-
-- [ ] **Step 2: 创建 api/transform-messages.ts**
+- [ ] **Step 2: 创建 utils/transform-messages.ts**（原 `api/transform-messages.ts`，Phase 2 重构时移入 utils）
 
 ```typescript
 /**
@@ -1304,7 +1303,7 @@ export function contentText(content: unknown): string {
  * 目前只做图片降级——非视觉模型会将图片替换为占位文本。
  */
 
-import type { Message, Model, Api } from "../types.ts";
+import type { Message, Model, Api } from "../types.js";
 
 /**
  * 规范化消息列表，供各 API 实现调用。
@@ -1340,8 +1339,8 @@ export function transformMessages(messages: Message[], model: Model<Api>): Messa
  * transformMessages 的单元测试。
  */
 import { describe, it, expect } from "vitest";
-import { transformMessages } from "../api/transform-messages.ts";
-import type { Model, Message } from "../types.ts";
+import { transformMessages } from "../utils/transform-messages.js";
+import type { Model, Message } from "../types.js";
 
 const visionModel: Model<"anthropic-messages"> = {
   id: "claude-vision",
@@ -1424,11 +1423,10 @@ import type {
   Provider,
   StreamOptions,
   ToolCall,
-} from "../types.ts";
-import { AssistantMessageEventStream } from "../stream.ts";
-import { envApiKey } from "../auth.ts";
-import { contentText } from "../utils/text.ts";
-import { transformMessages } from "./transform-messages.ts";
+} from "../types.js";
+import { AssistantMessageEventStream } from "../stream/index.js";
+import { envApiKey } from "../auth/index.js";
+import { transformMessages } from "./transform-messages.js";
 
 // ── 模型列表 ──
 
@@ -1742,18 +1740,18 @@ function createErrorAssistantMessage(model: Model<Api>, errorMessage: string): A
 }
 ```
 
-- [ ] **Step 5: 创建 examples/03-anthropic-chat.ts**
+- [ ] **Step 5: 创建 examples/02-anthropic-mock.ts**（原计划 03-anthropic-chat.ts，后调整为 mock 框架演示）
 
 ```typescript
 /**
  * Example 03: Anthropic 流式对话。
  * 需要设置 ANTHROPIC_API_KEY 环境变量或 .env 文件。
  *
- * 运行：ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/03-anthropic-chat.ts
+ * 运行：ANTHROPIC_API_KEY=sk-ant-... npx tsx examples/02-anthropic-mock.ts（mock 模式无需 key）
  */
 
-import { createModels } from "../src/provider.ts";
-import { anthropicProvider } from "../src/api/anthropic.ts";
+import { createModels } from "../src/provider.js";
+import { anthropicProvider } from "../src/api/anthropic.js";
 
 const models = createModels();
 models.set(anthropicProvider());
@@ -1811,7 +1809,7 @@ for await (const event of stream) {
 
 ```typescript
 // 在 index.ts 末尾添加：
-export { anthropicProvider } from "./api/anthropic.ts";
+export { anthropicProvider } from "./api/anthropic.js";
 ```
 
 - [ ] **Step 7: 运行 vitest**
@@ -1832,12 +1830,12 @@ npx tsc --noEmit
 
 预期：零错误。
 
-- [ ] **Step 9: 运行 example（需要真实 API Key）**
+- [ ] **Step 9: 运行 example（需要真实 API Key；如使用 mock 模式无需 key）**
 
 ```bash
 cd F:\allProject\githubProject\my-mimipi\packages\ai
 $env:ANTHROPIC_API_KEY="sk-ant-..."  # PowerShell 设置环境变量
-npx tsx examples/03-anthropic-chat.ts
+npx tsx examples/02-anthropic-mock.ts  # mock 模式，或 examples/03-deepseek-chat.ts（需 DEEPSEEK_API_KEY）演示真实流式
 ```
 
 预期：流式输出 "法国首都巴黎" 相关内容。
@@ -1850,8 +1848,7 @@ git add -A
 git commit -m "feat: Task 4 — Anthropic Messages API 实现
 
 - api/anthropic.ts: 消息转换 + 流式事件映射 + anthropicProvider()
-- utils/text.ts: contentText 辅助函数
-- api/transform-messages.ts: 消息规范化（图片降级）
+- utils/transform-messages.ts: 消息规范化（图片降级）
 - example 03: Anthropic 真实流式对话验证"
 ```
 

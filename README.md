@@ -6,9 +6,11 @@
 
 **Phase 01 完成** ✅ — AI 层（`packages/ai`）已实现。
 
-- 3 个 Provider：Anthropic (mock) / OpenAI / DeepSeek ✅
-- 54 个单元测试通过
+- 3 个 Provider：Anthropic（真实 SDK，已用 mock 示例演示） / OpenAI / DeepSeek ✅
+- 51 个单元测试通过（7 个测试文件，tsc 零错误）
 - DeepSeek 真实 API 流式对话 + 工具调用 + 多轮对话验证通过
+- OpenAI / Anthropic 框架走通，examples/02-anthropic-mock.ts 和 examples/04-openai-mock.ts 提供无需 API Key 的演示
+- 重试责任在 agent 层（AI 层只做错误分类）
 
 ## 快速开始
 

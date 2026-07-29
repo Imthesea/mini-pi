@@ -65,18 +65,28 @@ export interface OpenAICompatConfig {
 /** OpenAI/DeepSeek 的 finish_reason 映射到统一的 StopReason。
  *  用于 done.reason 和 message.stopReason,保证两者一致。
  *  返回类型精确为 done 事件 reason 允许的子集（不含 error/aborted）。
+ *
+ *  OpenAI 协议规定的 finish_reason 全集及映射:
+ *  - stop           → stop      自然结束
+ *  - length         → length    达到 max_tokens
+ *  - tool_calls     → toolUse   触发了工具调用
+ *  - content_filter → stop      内容被安全策略过滤;按"自然结束"处理,不视为错误
+ *  - 其它(null / 未知值) → stop  防御性默认
  */
 export function mapOpenAIFinishReason(
   raw: string | null | undefined,
 ): Exclude<StopReason, "error" | "aborted"> {
   if (raw === "tool_calls") return "toolUse";
   if (raw === "length") return "length";
+  if (raw === "content_filter") return "stop";
   return "stop";
 }
 
 // ── 消息转换 ──
 
-/** 将统一格式的消息转换为 OpenAI Chat Completions 格式 */
+/** 将统一格式的消息转换为 OpenAI Chat Completions 格式。
+ *  @internal 仅供 openAICompatibleStream + openai-messages.test.ts 使用。
+ *  下划线仅是命名约定,TypeScript 不会阻止外部 import。 */
 export function _convertMessages(messages: Context["messages"]): ChatCompletionMessageParam[] {
   const result: ChatCompletionMessageParam[] = [];
 
@@ -158,9 +168,212 @@ export function convertTools(tools: Context["tools"]): ChatCompletionTool[] {
   }));
 }
 
+// ── 流式状态 ──
+
+/** 单次流式调用的可变状态。
+ *  把所有"跨 chunk 累积"的变量集中到一个对象,避免闭包散落 8 个 let 变量。
+ *  也方便单测:可以 mock 一个 state 喂给 processChunk / finalizeStream。 */
+interface StreamState {
+  textContent: string;
+  thinkingContent: string;
+  /** 下一个可分配的 content block index（按 text → thinking → tool 0 → tool 1 → ... 顺序） */
+  nextBlockIndex: number;
+  /** 文本块在 content 数组中的 index;-1 表示尚未开始 */
+  textBlockIndex: number;
+  /** 思考块在 content 数组中的 index;-1 表示尚未开始 */
+  thinkingBlockIndex: number;
+  /** tool_call index → content block index 的映射 */
+  toolBlockIndex: Map<number, number>;
+  /** tool_call index → 累积数据 */
+  currentToolCalls: Map<number, {
+    id: string;
+    name: string;
+    arguments: string;
+    contentIndex: number;
+  }>;
+  finishReason: string | null;
+  usageData: { input: number; output: number };
+  /** 推送给所有事件的 partial 模板（pi 协议要求:partial 字段携带当前消息骨架;
+   *  provider 用 model.provider —— B1 修复:之前硬编码 "openai" 会让 DeepSeek 流的 partial 与 message 不一致） */
+  initialPartial: AssistantMessage;
+}
+
+/** 创建流式初始状态。抽离这一函数便于单元测试 + 让 openAICompatibleStream 内部状态变量归一。 */
+function createStreamState(model: Model<"openai-completions">): StreamState {
+  return {
+    textContent: "",
+    thinkingContent: "",
+    nextBlockIndex: 0,
+    textBlockIndex: -1,
+    thinkingBlockIndex: -1,
+    toolBlockIndex: new Map(),
+    currentToolCalls: new Map(),
+    finishReason: null,
+    usageData: { input: 0, output: 0 },
+    initialPartial: {
+      role: "assistant",
+      content: [],
+      api: "openai-completions",
+      provider: model.provider,
+      model: model.id,
+      usage: { input: 0, output: 0, totalTokens: 0, cost: { input: 0, output: 0, total: 0 } },
+      stopReason: "stop",
+      timestamp: Date.now(),
+    },
+  };
+}
+
+/** 处理单个流式 chunk:无外部副作用（仅修改 state 和 push 到 stream）。
+ *  抽离这一函数便于单元测试 chunk → event 映射的正确性。 */
+function processChunk(
+  chunk: OpenAI.Chat.Completions.ChatCompletionChunk,
+  state: StreamState,
+  stream: AssistantMessageEventStream,
+): void {
+  // 处理 usage（OpenAI 在流末尾通过 stream_options.include_usage 返回）
+  if (chunk.usage) {
+    state.usageData.input = chunk.usage.prompt_tokens ?? 0;
+    state.usageData.output = chunk.usage.completion_tokens ?? 0;
+  }
+
+  const delta = chunk.choices?.[0]?.delta as StreamDelta | undefined;
+  if (!delta) return;
+
+  // 文本内容
+  if (delta.content) {
+    if (state.textBlockIndex === -1) {
+      state.textBlockIndex = state.nextBlockIndex++;
+    }
+    state.textContent += delta.content;
+    stream.push({
+      type: "text_delta",
+      contentIndex: state.textBlockIndex,
+      delta: delta.content,
+      partial: { ...state.initialPartial },
+    });
+  }
+
+  // 思考内容（OpenAI 的 reasoning_content / DeepSeek 的 thinking）
+  if (delta.reasoning_content) {
+    if (state.thinkingBlockIndex === -1) {
+      state.thinkingBlockIndex = state.nextBlockIndex++;
+    }
+    state.thinkingContent += delta.reasoning_content;
+    stream.push({
+      type: "thinking_delta",
+      contentIndex: state.thinkingBlockIndex,
+      delta: delta.reasoning_content,
+      partial: { ...state.initialPartial },
+    });
+  }
+
+  // 工具调用
+  if (delta.tool_calls) {
+    for (const tcDelta of delta.tool_calls) {
+      const index = tcDelta.index;
+      let contentIndex = state.toolBlockIndex.get(index);
+      if (contentIndex === undefined) {
+        contentIndex = state.nextBlockIndex++;
+        state.toolBlockIndex.set(index, contentIndex);
+        state.currentToolCalls.set(index, {
+          id: tcDelta.id ?? "",
+          name: "",
+          arguments: "",
+          contentIndex,
+        });
+        stream.push({
+          type: "toolcall_start",
+          contentIndex,
+          partial: { ...state.initialPartial },
+        });
+      }
+
+      const current = state.currentToolCalls.get(index)!;
+      if (tcDelta.id) current.id = tcDelta.id;
+      if (tcDelta.function?.name) {
+        current.name += tcDelta.function.name;
+      }
+      if (tcDelta.function?.arguments) {
+        current.arguments += tcDelta.function.arguments;
+        stream.push({
+          type: "toolcall_delta",
+          contentIndex,
+          delta: tcDelta.function.arguments,
+          partial: { ...state.initialPartial },
+        });
+      }
+    }
+  }
+
+  // 完成原因
+  if (chunk.choices?.[0]?.finish_reason) {
+    state.finishReason = chunk.choices[0].finish_reason;
+  }
+}
+
+/** 流式循环结束后的收尾:推送 text_end / thinking_end / toolcall_end,
+ *  并返回组装好的 ToolCall 列表（供调用方传入 buildAssistantMessage）。
+ *  抽离这一函数便于单元测试收尾阶段的边界（空内容、JSON 解析失败等）。 */
+function finalizeStream(
+  state: StreamState,
+  stream: AssistantMessageEventStream,
+): ToolCall[] {
+  // 结束文本块
+  if (state.textContent) {
+    stream.push({
+      type: "text_end",
+      contentIndex: state.textBlockIndex,
+      content: state.textContent,
+      partial: { ...state.initialPartial },
+    });
+  }
+
+  // 结束思考块
+  if (state.thinkingContent) {
+    stream.push({
+      type: "thinking_end",
+      contentIndex: state.thinkingBlockIndex,
+      content: state.thinkingContent,
+      partial: { ...state.initialPartial },
+    });
+  }
+
+  // 收集完成的工具调用
+  const completedToolCalls: ToolCall[] = [];
+  for (const [, tc] of state.currentToolCalls) {
+    let args: Record<string, any> = {};
+    let parseError: string | undefined;
+    try {
+      args = JSON.parse(tc.arguments);
+    } catch (err: unknown) {
+      // 解析失败：保留原始内容供调用方诊断，arguments 留空以避免误用
+      parseError = err instanceof Error ? err.message : String(err);
+    }
+    const toolCall: ToolCall = {
+      type: "toolCall",
+      id: tc.id,
+      name: tc.name,
+      arguments: args,
+      rawArguments: tc.arguments,
+      ...(parseError ? { parseError } : {}),
+    };
+    completedToolCalls.push(toolCall);
+    stream.push({
+      type: "toolcall_end",
+      contentIndex: tc.contentIndex,
+      toolCall,
+      partial: { ...state.initialPartial },
+    });
+  }
+
+  return completedToolCalls;
+}
+
 // ── 流式实现 ──
 
-/** OpenAI 兼容 Provider 流式调用的核心实现 */
+/** OpenAI 兼容 Provider 流式调用的核心实现。
+ *  内部委托给 createStreamState / processChunk / finalizeStream 三个纯函数,
+ *  本函数只负责"建流 → 鉴权 → 构参 → 调 SDK → 编排循环"四件事。 */
 export function openAICompatibleStream(
   config: OpenAICompatConfig,
   model: Model<"openai-completions">,
@@ -215,6 +428,7 @@ export function openAICompatibleStream(
       params.thinking = { type: "enabled" };
     }
   }
+
   // 异步执行流式请求
   (async () => {
     try {
@@ -230,132 +444,27 @@ export function openAICompatibleStream(
 
       // TODO: onResponse 暂不实现 — OpenAI SDK 流不暴露原始 HTTP response
 
-      // 初始 partial 消息（provider 用 model.provider，B1 修复：之前硬编码 "openai" 会让 DeepSeek 流的 partial 与 message 不一致）
-      const initialPartial: AssistantMessage = {
-        role: "assistant",
-        content: [],
-        api: "openai-completions",
-        provider: model.provider,
-        model: model.id,
-        usage: { input: 0, output: 0, totalTokens: 0, cost: { input: 0, output: 0, total: 0 } },
-        stopReason: "stop",
-        timestamp: Date.now(),
-      };
-
-      stream.push({ type: "start", partial: { ...initialPartial } });
-
-      // 跟踪当前正在构建的 content
-      let textContent = "";
-      let thinkingContent = "";
-      // 动态分配 contentIndex：按出现顺序（text → thinking → tool call 0 → tool call 1 → ...）
-      // 之前硬编码 `index + 2` 会导致无 text/think 时偏移错误。
-      let nextBlockIndex = 0;
-      let textBlockIndex = -1;
-      let thinkingBlockIndex = -1;
-      const toolBlockIndex: Map<number, number> = new Map();
-      let currentToolCalls: Map<number, { id: string; name: string; arguments: string; contentIndex: number }> = new Map();
-      let finishReason: string | null = null;
-      let usageData: { input: number; output: number } = { input: 0, output: 0 };
+      // 创建流式状态（在 SDK 调用成功后,避免无效分配）
+      const state = createStreamState(model);
+      stream.push({ type: "start", partial: { ...state.initialPartial } });
 
       for await (const chunk of sdkStream) {
-        // 处理 usage（OpenAI 在流末尾通过 stream_options.include_usage 返回）
-        if (chunk.usage) {
-          usageData.input = chunk.usage.prompt_tokens ?? 0;
-          usageData.output = chunk.usage.completion_tokens ?? 0;
-        }
-
-        const delta = chunk.choices?.[0]?.delta as StreamDelta | undefined;
-        if (!delta) continue;
-
-        // 文本内容
-        if (delta.content) {
-          if (textBlockIndex === -1) {
-            textBlockIndex = nextBlockIndex++;
-          }
-          textContent += delta.content;
-          stream.push({ type: "text_delta", contentIndex: textBlockIndex, delta: delta.content, partial: { ...initialPartial } });
-        }
-
-        // 思考内容（OpenAI 的 reasoning_content / DeepSeek 的 thinking）
-        if (delta.reasoning_content) {
-          if (thinkingBlockIndex === -1) {
-            thinkingBlockIndex = nextBlockIndex++;
-          }
-          thinkingContent += delta.reasoning_content;
-          stream.push({ type: "thinking_delta", contentIndex: thinkingBlockIndex, delta: delta.reasoning_content, partial: { ...initialPartial } });
-        }
-
-        // 工具调用
-        if (delta.tool_calls) {
-          for (const tcDelta of delta.tool_calls) {
-            const index = tcDelta.index;
-            let contentIndex = toolBlockIndex.get(index);
-            if (contentIndex === undefined) {
-              contentIndex = nextBlockIndex++;
-              toolBlockIndex.set(index, contentIndex);
-              currentToolCalls.set(index, { id: tcDelta.id ?? "", name: "", arguments: "", contentIndex });
-              stream.push({ type: "toolcall_start", contentIndex, partial: { ...initialPartial } });
-            }
-
-            const current = currentToolCalls.get(index)!;
-            if (tcDelta.id) current.id = tcDelta.id;
-            if (tcDelta.function?.name) {
-              current.name += tcDelta.function.name;
-            }
-            if (tcDelta.function?.arguments) {
-              current.arguments += tcDelta.function.arguments;
-              stream.push({ type: "toolcall_delta", contentIndex, delta: tcDelta.function.arguments, partial: { ...initialPartial } });
-            }
-          }
-        }
-
-        // 完成原因
-        if (chunk.choices?.[0]?.finish_reason) {
-          finishReason = chunk.choices[0].finish_reason;
-        }
+        processChunk(chunk, state, stream);
       }
 
-      // 结束文本块
-      if (textContent) {
-        stream.push({ type: "text_end", contentIndex: textBlockIndex, content: textContent, partial: { ...initialPartial } });
-      }
-
-      // 结束思考块
-      if (thinkingContent) {
-        stream.push({ type: "thinking_end", contentIndex: thinkingBlockIndex, content: thinkingContent, partial: { ...initialPartial } });
-      }
-
-      // 收集完成的工具调用
-      const completedToolCalls: ToolCall[] = [];
-      for (const [, tc] of currentToolCalls) {
-        let args: Record<string, any> = {};
-        let parseError: string | undefined;
-        try {
-          args = JSON.parse(tc.arguments);
-        } catch (err: unknown) {
-          // 解析失败：保留原始内容供调用方诊断，arguments 留空以避免误用
-          parseError = err instanceof Error ? err.message : String(err);
-        }
-        const toolCall: ToolCall = {
-          type: "toolCall",
-          id: tc.id,
-          name: tc.name,
-          arguments: args,
-          rawArguments: tc.arguments,
-          ...(parseError ? { parseError } : {}),
-        };
-        completedToolCalls.push(toolCall);
-        stream.push({
-          type: "toolcall_end",
-          contentIndex: tc.contentIndex,
-          toolCall,
-          partial: { ...initialPartial },
-        });
-      }
+      // 收尾:推送 end 事件,返回完成态的 ToolCall 列表
+      const completedToolCalls = finalizeStream(state, stream);
 
       // 构建最终消息（保留完整 content）
-      const finalMsg = buildAssistantMessage(model, finishReason, usageData, textContent, thinkingContent, completedToolCalls);
-      const reason = mapOpenAIFinishReason(finishReason);
+      const finalMsg = buildAssistantMessage(
+        model,
+        state.finishReason,
+        state.usageData,
+        state.textContent,
+        state.thinkingContent,
+        completedToolCalls,
+      );
+      const reason = mapOpenAIFinishReason(state.finishReason);
       stream.push({ type: "done", reason, message: finalMsg });
     } catch (error) {
       const norm = normalizeProviderError(error);
@@ -384,11 +493,13 @@ export function buildAssistantMessage(
   const outputCost = (model.cost.output / 1_000_000) * usageData.output;
 
   const content: AssistantMessage["content"] = [];
-  if (thinkingContent) {
-    content.push({ type: "thinking", thinking: thinkingContent });
-  }
+  // 顺序与流式事件推送保持一致：text → thinking → tools
+  // （partial.content 按 nextBlockIndex 分配就是这个顺序，done 消息需对齐）
   if (textContent) {
     content.push({ type: "text", text: textContent });
+  }
+  if (thinkingContent) {
+    content.push({ type: "thinking", thinking: thinkingContent });
   }
   content.push(...toolCalls);
 

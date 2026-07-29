@@ -24,8 +24,9 @@
 - 重构：模块目录化（auth/ provider/ stream/ 各自独立目录，`index.ts` 导出）
 
 ### Task 4+5: OpenAI + DeepSeek API
-- `src/api/openai.ts`：OpenAI Chat Completions + DeepSeek
-- 共用 `createOpenAICompatibleProvider()` 工厂，通过 `reasoningFormat` 区分
+- `src/api/openai-compat-base.ts`：抽象基类 `BaseOpenAICompatProvider` + 共用工具函数
+- `src/api/openai.ts`：`OpenAIProvider` 继承基类（48 行）
+- `src/api/deepseek.ts`：`DeepSeekProvider` 继承基类
 - `src/utils/transform-messages.ts`（注意：早期在 `api/` 目录，代码审查 #7 后移到 `utils/`）
 - DeepSeek 真实 API 验证通过 ✅
 - OpenAI 需代理（代码就绪）
@@ -46,16 +47,15 @@
 | 检查项 | 结果 |
 |--------|------|
 | `tsc --noEmit` | ✅ 零错误 |
-| `vitest run` | ✅ 29 passed（5 个测试文件） |
+| `vitest run` | ✅ 51 passed（7 个测试文件，含重试逻辑移除后由 55 → 51） |
 | `example 01` 类型系统 | ✅ |
-| `example 02` OpenAI 框架 | ⚠️ 需代理（代码就绪） |
+| `example 02` Anthropic mock | ✅（用户批准） |
 | `example 03` DeepSeek 流式 | ✅ |
+| `example 04` OpenAI mock | ✅（用户批准） |
 | `example 06` 工具调用 | ✅ |
 | `example 07` 多轮对话 | ✅ |
-| `example 02-anthropic-mock` | ✅（用户批准） |
-| `example 04-openai-mock` | ✅（用户批准） |
 
-**测试**: vitest 55 passed（7 个测试文件），tsc 零错误
+**测试**: vitest 51 passed（7 个测试文件），tsc 零错误
 
 ## 代码审查修复
 
@@ -103,7 +103,7 @@
 | K | mimeType string | 联合类型 |
 
 ### 重大规则
-- **业务代码绝对禁止 mock**：`src/api/anthropic.ts` 从 mock 改为真实 SDK 实现
+- **业务代码绝对禁止 mock**：`src/api/anthropic.ts` 已是真实 SDK 实现
 - **mock 仅限 examples 且需用户批准**：已记录到记忆系统
 
 1. **可扩展优先**：每个模块以目录组织，通过 `index.ts` 导出。后续扩展只需在目录内新增文件
@@ -131,14 +131,23 @@ packages/ai/
     provider/index.ts
     stream/index.ts
     api/
-      anthropic.ts          (真实 SDK)
-      openai.ts             (OpenAI + DeepSeek)
+      anthropic.ts            (真实 SDK)
+      openai-compat-base.ts   (抽象基类 + 共用工具函数)
+      openai.ts               (OpenAIProvider 继承基类，48 行)
+      deepseek.ts             (DeepSeekProvider 继承基类)
     utils/
-      assistant-message.ts, retry.ts, error-body.ts, transform-messages.ts
+      assistant-message.ts
+      retry.ts                (错误分类，agent 层判断重试用)
+      error-body.ts
+      transform-messages.ts
     __tests__/
-      auth.test.ts, stream.test.ts, provider.test.ts
-      transform-messages.test.ts, retry.test.ts
-      error-body.test.ts, openai-messages.test.ts
+      auth.test.ts
+      stream.test.ts
+      provider.test.ts
+      transform-messages.test.ts
+      retry.test.ts
+      error-body.test.ts
+      openai-messages.test.ts
   examples/
     01-core-types.ts        ✅
     02-anthropic-mock.ts    ✅（已批准）
@@ -150,5 +159,21 @@ packages/ai/
 
 ## NEXT
 
-- 等用户提供 Anthropic API Key 后，替换 mock 为真实实现
-- 等用户批准后开始 agent 层（Phase 02）
+- 用户决定是否提供 Anthropic API Key 替换 mock 跑通真实端到端
+- 等用户批准后开始 agent 层（Phase 02），届时 AI 层会配合重试责任在 agent 层落地的接口扩展
+
+## 二次清理（2026-07-29 收尾）
+
+| 项 | 改动 |
+|----|------|
+| `openai-compat-base.ts:buildAssistantMessage` | content 数组顺序改为 `text → thinking → tools`，与流式事件推送顺序对齐 |
+| `provider/index.ts:complete()` | 移除重试循环（重试责任给 agent 层） |
+| `types.ts:StreamOptions` | 移除 `maxRetries` 字段（已无消费方） |
+| `provider.test.ts` | 移除"重试逻辑" describe 块（4 个测试） |
+| `my-minipi-spec.md` / `phase01-ai-core-design.md` | 目录树、Phase 描述、行数、测试数（55 → 51）、文件索引全面更新 |
+| `phase01-ai-core-plan.md` | `.ts` → `.js` 扩展名 import；`auth.ts` / `stream.ts` / `provider.ts` → 目录形式 |
+| `openai-decompose-design.md` / `openai-decompose-plan.md` | openai.ts 行数 30 → 48；测试数 55 → 51；example 02 → 04 |
+| 文档顶部加历史计划说明 | 避免读者误把"计划稿"当"当前实现" |
+
+**测试**: 51 passed / tsc 零错误
+**Commit 计划**: `fix(ai): content 顺序 + 重试责任挪出 + 文档全面同步`

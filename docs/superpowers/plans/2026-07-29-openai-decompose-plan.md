@@ -1,10 +1,14 @@
 # openai.ts 拆分实现计划
 
+> **本文档状态（2026-07-29）：历史计划，4 个 Task 全部已完成。** Commits: `3722301` (Task 1) / `97590e8` (Task 2) / `4c3519b` (Task 3+4)。所有 checkbox 已勾选，验证清单已通过。
+>
+> 以下代码块保留"计划稿"原样，便于追溯思路；如需看最终实现，以仓库代码为准。
+
 > **对于 agentic workers:** 使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 来逐任务实施此计划。步骤使用 `- [ ]` 复选框跟踪。
 
 **目标：** 把 `packages/ai/src/api/openai.ts` (496 行) 拆为抽象基类 + OpenAI/DeepSeek 两个独立子类文件,公共 API 签名零变化。
 
-**架构：** 新增 `openai-compat-base.ts` 承载 `BaseOpenAICompatProvider` 抽象类与所有 OpenAI 兼容家族共用工具函数;`openai.ts` 缩为 `OpenAIProvider`(~30 行);新增 `deepseek.ts` 为 `DeepSeekProvider`(~30 行)。子 Provider 通过 `super(config)` 注入差异点(模型列表、baseUrl、envVar、reasoning 格式)。
+**架构：** 新增 `openai-compat-base.ts` 承载 `BaseOpenAICompatProvider` 抽象类与所有 OpenAI 兼容家族共用工具函数;`openai.ts` 缩为 `OpenAIProvider`(~48 行);新增 `deepseek.ts` 为 `DeepSeekProvider`(~30 行)。子 Provider 通过 `super(config)` 注入差异点(模型列表、baseUrl、envVar、reasoning 格式)。
 
 **技术栈：** TypeScript 5.9+ / vitest / pnpm / OpenAI SDK 6.26 / TypeBox 1.1.38
 
@@ -416,14 +420,14 @@ cd f:\allProject\githubProject\my-mimipi\packages\ai
 pnpm vitest run
 ```
 
-预期: 55/55 通过。
+预期: 51/51 通过。
 
 - [ ] **Step 3: 跑所有 examples 做最终集成验证**
 
 ```bash
 cd f:\allProject\githubProject\my-mimipi\packages\ai
 npx tsx examples/01-core-types.ts
-npx tsx examples/02-openai-mock.ts
+npx tsx examples/04-openai-mock.ts
 npx tsx examples/03-deepseek-chat.ts
 npx tsx examples/06-tool-use.ts
 npx tsx examples/07-multi-turn.ts
@@ -455,13 +459,14 @@ git commit -m 'test(ai): openai-messages 测试改指 openai-compat-base 模块'
 | 检查项 | 命令 | 期望 |
 |--------|------|------|
 | TypeScript | `cd packages/ai && pnpm tsc --noEmit` | 零错误 |
-| 单元测试 | `cd packages/ai && pnpm vitest run` | 55/55 通过 |
+| 单元测试 | `cd packages/ai && pnpm vitest run` | 51/51 通过 |
 | Example 01 (类型) | `cd packages/ai && npx tsx examples/01-core-types.ts` | 跑通 |
-| Example 02 (OpenAI mock) | `cd packages/ai && npx tsx examples/02-openai-mock.ts` | 跑通 |
+| Example 02 (Anthropic mock) | `cd packages/ai && npx tsx examples/02-anthropic-mock.ts` | 跑通 |
 | Example 03 (DeepSeek 真实) | `cd packages/ai && npx tsx examples/03-deepseek-chat.ts` | 跑通 |
+| Example 04 (OpenAI mock) | `cd packages/ai && npx tsx examples/04-openai-mock.ts` | 跑通 |
 | Example 06 (工具调用) | `cd packages/ai && npx tsx examples/06-tool-use.ts` | 跑通 |
 | Example 07 (多轮) | `cd packages/ai && npx tsx examples/07-multi-turn.ts` | 跑通 |
-| 文件行数 | `Get-Content packages/ai/src/api/openai.ts \| Measure-Object -Line` | ~30 |
+| 文件行数 | `Get-Content packages/ai/src/api/openai.ts \| Measure-Object -Line` | 48 (原 496) |
 
 ## 不做的事 (YAGNI)
 

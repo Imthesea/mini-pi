@@ -7,7 +7,7 @@
 
 ### 目标
 
-从 pi 项目的 `packages/ai`（~25,000 行，35+ Provider）精简出一个最小化可运行的 AI 层（~1,020 行，3 个 Provider）。
+从 pi 项目的 `packages/ai`（~25,000 行，35+ Provider）精简出一个最小化可运行的 AI 层（~1,200 行，3 个 Provider）。
 
 ### 核心原则
 
@@ -23,10 +23,10 @@
 |------|------------------|---------------------|
 | 源文件 | ~120+ | 12 |
 | Provider | 35+ | 3（Anthropic / OpenAI / DeepSeek） |
-| API 实现 | 10 | 2 |
+| API 实现 | 10 | 4（anthropic + openai + deepseek + openai-compat-base） |
 | 认证文件 | ~15 | 1（3 行函数） |
 | 依赖 | ~20 runtime | 3 runtime + dotenv |
-| 行数 | ~25,000 | ~1,020 |
+| 行数 | ~25,000 | ~1,200 |
 
 ---
 
@@ -93,43 +93,47 @@ packages/ai/
   .env.example              # 模板，列出需要的环境变量
 
   src/
-    index.ts                # 公共 API 导出 + dotenv 自动加载
+    index.ts                # 公共 API 导出
     types.ts                # 所有核心类型（Model, Context, Message, Tool 等）
-    stream.ts               # EventStream<T,R> + AssistantMessageEventStream（从 pi 原样）
-    provider.ts             # Provider 接口 + Models 集合 + createModels()
-    auth.ts                 # envApiKey() + dotenv 加载
+    stream/index.ts         # EventStream<T,R> + AssistantMessageEventStream（从 pi 原样）
+    provider/index.ts       # Provider 接口 + Models 集合 + createModels()
+    auth/index.ts           # envApiKey() + dotenv 加载
     utils/
       retry.ts              # isRetryableAssistantError 错误分类
       error-body.ts         # normalizeProviderError 错误规范化
-      json-parse.ts         # parseStreamingJson 工具参数流式解析
-      text.ts               # contentText 辅助函数
+      assistant-message.ts  # createErrorAssistantMessage 辅助函数
+      transform-messages.ts # 消息规范化（图片降级）
     api/
       anthropic.ts          # Anthropic Messages API 实现 + anthropicProvider()
-      openai.ts             # OpenAI Completions API 实现 + openaiProvider() + deepseekProvider()
-      transform-messages.ts # 消息规范化（简化版，图片降级）
+      openai.ts             # openaiProvider()（继承 BaseOpenAICompatProvider，~48 行）
+      deepseek.ts           # deepseekProvider()（继承 BaseOpenAICompatProvider）
+      openai-compat-base.ts # OpenAI 兼容家族共用基类 + 工具
 
-  src/__tests__/            # vitest 单元测试
+  src/__tests__/            # vitest 单元测试（7 文件, 51 tests ✅）
     stream.test.ts
     auth.test.ts
     provider.test.ts
     retry.test.ts
+    error-body.test.ts
     transform-messages.test.ts
+    openai-messages.test.ts
 
-  examples/                 # 🔴 集成验证 — 每个 Phase 的真实场景测试
+  examples/                 # 集成验证 — 每个 Phase 的真实场景测试
     01-core-types.ts        # Phase 1: 创建类型、使用 EventStream
-    02-auth-and-models.ts   # Phase 2: 认证 + Models 集合
-    03-anthropic-chat.ts    # Phase 3: Anthropic 流式对话
-    04-openai-chat.ts       # Phase 4: OpenAI 流式对话
-    05-deepseek-chat.ts     # Phase 5: DeepSeek 流式对话
-    06-tool-use.ts          # Phase 6: 带工具调用的对话
+    02-anthropic-mock.ts    # Phase 3: Anthropic 框架演示（mock，经批准）
+    03-deepseek-chat.ts     # Phase 6: DeepSeek 流式对话（真实 API）
+    04-openai-mock.ts       # Phase 5: OpenAI 框架演示（mock，经批准）
+    06-tool-use.ts          # Phase 7: 带工具调用的对话
     07-multi-turn.ts        # Phase 7: 多轮对话 + 端到端
 ```
+
+> **Phase 划分说明**：以上按"目标"标注各 example 的归属。实际交付顺序：Phase 1（01）→ Phase 2（无 example）→ Phase 3（02-mock）→ Phase 4-5（04-mock + 真实 API 就绪）→ Phase 6（03/06/07 真实 API）→ Phase 7（错误处理 + 集成验证）。
 
 ---
 
 ## 3. 核心接口设计
 
-### 3.1 类型系统 (`src/types.ts`, ~100 行)
+### 3.1 类型系统 (`src/types.ts`)
 
 **API 与 Provider 标识**：
 
@@ -164,8 +168,6 @@ interface Model<TApi extends Api = Api> {
 interface ModelCost {
   input: number;
   output: number;
-  cacheRead: number;
-  cacheWrite: number;
 }
 ```
 
@@ -184,12 +186,23 @@ interface ThinkingContent {
   thinking: string;
 }
 
+/** 图片内容块（仅支持 base64 编码的常见格式） */
+interface ImageContent {
+  type: "image";
+  data: string;
+  mimeType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+}
+
 /** 工具调用 */
 interface ToolCall {
   type: "toolCall";
   id: string;
   name: string;
   arguments: Record<string, any>;
+  /** 原始 JSON 字符串（解析失败时保留，便于诊断） */
+  rawArguments?: string;
+  /** 参数 JSON 解析失败时的错误信息 */
+  parseError?: string;
 }
 
 /** 用户消息 */
@@ -236,14 +249,10 @@ type StopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
 interface Usage {
   input: number;
   output: number;
-  cacheRead: number;
-  cacheWrite: number;
   totalTokens: number;
   cost: {
     input: number;
     output: number;
-    cacheRead: number;
-    cacheWrite: number;
     total: number;
   };
 }
@@ -280,7 +289,13 @@ interface StreamOptions {
   /** 请求发出前的回调：可检查或替换原始请求体，用于 debug */
   onPayload?: (payload: unknown, model: Model<Api>) => unknown | undefined | Promise<unknown | undefined>;
   /** 收到 HTTP 响应后的回调：可检查响应头、状态码等元信息 */
-  onResponse?: (response: { status: number; headers: Record<string, string> }, model: Model<Api>) => void | Promise<void>;
+  onResponse?: (response: ProviderResponse, model: Model<Api>) => void | Promise<void>;
+}
+
+/** onResponse 回调拿到的响应元信息 */
+interface ProviderResponse {
+  status: number;
+  headers: Record<string, string>;
 }
 ```
 
@@ -303,7 +318,7 @@ type AssistantMessageEvent =
   | { type: "error"; reason: "aborted" | "error"; error: AssistantMessage };
 ```
 
-### 3.2 事件流 (`src/stream.ts`, ~89 行)
+### 3.2 事件流 (`src/stream/index.ts`)
 
 **从 pi 原样保留**。两个类：
 
@@ -327,7 +342,7 @@ class EventStream<T, R = T> implements AsyncIterable<T> {
 class AssistantMessageEventStream extends EventStream<AssistantMessageEvent, AssistantMessage> {}
 ```
 
-### 3.3 Provider 与 Models (`src/provider.ts`, ~80 行)
+### 3.3 Provider 与 Models (`src/provider/index.ts`)
 
 ```typescript
 /**
@@ -347,9 +362,9 @@ interface Provider<TApi extends Api = Api> {
   /** 按 ID 查找单个模型 */
   getModel(id: string): Model<TApi> | undefined;
 
-  /** 流式调用模型 */
+  /** 流式调用模型。即使 auth/provider 校验失败，也返回流（不抛错），错误推到 error 事件中。 */
   stream(model: Model<TApi>, context: Context, options?: StreamOptions): AssistantMessageEventStream;
-  /** 非流式调用（收集流的结果） */
+  /** 非流式调用（收集流的结果）。auth/provider 失败时返回 stopReason="error" 的 AssistantMessage。 */
   complete(model: Model<TApi>, context: Context, options?: StreamOptions): Promise<AssistantMessage>;
 }
 
@@ -372,17 +387,21 @@ interface Models {
   /** 精确查找模型 */
   getModel(provider: string, modelId: string): Model<Api> | undefined;
 
-  /** 流式调用：自动根据 model.provider 分发到对应 Provider */
+  /** 流式调用：自动根据 model.provider 分发到对应 Provider。
+   *  即使 auth/provider 校验失败，也返回一个流（不抛错），错误推到 error 事件。 */
   stream(model: Model<Api>, context: Context, options?: StreamOptions): AssistantMessageEventStream;
-  /** 非流式调用 */
+  /** 非流式调用。auth/provider 校验失败时返回 stopReason="error" 的 AssistantMessage。 */
   complete(model: Model<Api>, context: Context, options?: StreamOptions): Promise<AssistantMessage>;
 }
 
 /** 创建 Models 实例 */
 function createModels(): Models;
+
+/** 默认的 complete() 实现：收集流式结果。Provider 实现方可复用 */
+function defaultComplete(provider: Provider<Api>, model: Model<Api>, context: Context, options?: StreamOptions): Promise<AssistantMessage>;
 ```
 
-### 3.4 认证 (`src/auth.ts`, ~10 行)
+### 3.4 认证 (`src/auth/index.ts`)
 
 ```typescript
 /**
@@ -393,12 +412,15 @@ function createModels(): Models;
 export function envApiKey(envVar: string): string | undefined;
 ```
 
-**入口文件 `src/index.ts` 中自动加载 `.env`**：
+**dotenv 自动加载位置：`src/auth/index.ts` 顶部**
 
 ```typescript
+// src/auth/index.ts 顶部（与 src/index.ts 无关）
 import dotenv from "dotenv";
-dotenv.config(); // 自动加载 packages/ai/.env（如存在）
+dotenv.config();
 ```
+
+> 选择在 `auth/index.ts` 而非 `src/index.ts` 加载 dotenv 的原因：`envApiKey` 是最早访问 `process.env` 的函数，在它所在的模块加载 dotenv 保证任何 import 路径（深嵌套）下 .env 都已就绪。
 
 **错误提示示例**：
 
@@ -408,7 +430,7 @@ Provider "anthropic" 未配置。
 或通过 StreamOptions.apiKey 手动传入。
 ```
 
-### 3.5 Anthropic API (`src/api/anthropic.ts`, ~250 行)
+### 3.5 Anthropic API (`src/api/anthropic.ts`)
 
 **消息转换规则**：
 
@@ -499,17 +521,23 @@ export function openaiProvider(): Provider<"openai-completions">;
 export function deepseekProvider(): Provider<"openai-completions">;
 ```
 
-### 3.7 消息规范化 (`src/api/transform-messages.ts`, ~60 行)
+### 3.7 消息规范化 (`src/utils/transform-messages.ts`)
 
 ```typescript
 /**
  * 规范化消息列表，供各 API 实现调用。
  * 当前只做一件事：将发送给非视觉模型的图片内容降级为占位文本。
+ *
+ * 通过泛型约束保证 transform 后的 content 形态不变：
+ *   - string 保持 string
+ *   - readonly { type: string }[] 保持同形态
  */
-export function transformMessages(messages: Message[], model: Model<Api>): Message[];
+export function transformMessages<
+  T extends { content: string | readonly { type: string }[] },
+>(messages: readonly T[], model: Model<Api>): T[];
 ```
 
-### 3.8 错误处理 (`src/utils/retry.ts` + `src/utils/error-body.ts`, ~90 行)
+### 3.8 错误处理 (`src/utils/retry.ts` + `src/utils/error-body.ts`)
 
 **错误分类**：
 
@@ -532,7 +560,7 @@ export function isRetryableAssistantError(error: unknown): boolean;
 | `invalid_request_error` / 参数错误 | 网络错误 / `ECONNRESET` / `timeout` |
 | | 流提前中断 / `connection_error` |
 
-> **重试逻辑不在 AI 层**。AI 层只负责错误分类和报告。重试策略（等待多久、多少次）由后续的 agent 层在 agent loop 中实现。
+> **重试责任放在 agent 层**。AI 层只暴露 `isRetryableAssistantError` 供 agent 层判断，**不做退避循环、不维护 `maxRetries` 选项**。重试策略（等待多久、多少次）由后续的 agent 层在 agent loop 中实现。AI 层 `Models.complete()` 只做：auth/provider 校验 → 调 `provider.complete()` → 错误时包装为 `stopReason="error"` 的 `AssistantMessage` 返回。
 
 **错误规范化**：
 

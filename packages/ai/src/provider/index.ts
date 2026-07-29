@@ -17,7 +17,6 @@ import type {
 } from "../types.js";
 import type { AssistantMessageEventStream } from "../stream/index.js";
 import { AssistantMessageEventStream as EventStreamClass } from "../stream/index.js";
-import { isRetryableAssistantError } from "../utils/retry.js";
 import { createErrorAssistantMessage } from "../utils/assistant-message.js";
 
 // ── 错误类 ──
@@ -163,43 +162,22 @@ class ModelsImpl implements Models {
     return auth.provider.stream(model, context, auth.resolvedOptions);
   }
 
+  /**
+   * 非流式调用：直接走 provider.complete()，让上层（agent 层）实现重试。
+   * AI 层只做错误分类（`isRetryableAssistantError`），不做退避循环。
+   * Provider.complete 同步抛错时，包装为 stopReason="error" 的结果返回。
+   */
   async complete(model: Model<Api>, context: Context, options?: StreamOptions): Promise<AssistantMessage> {
-    // D1-b：先做 auth/provider 校验；通过后对 provider.complete 做重试循环。
     const auth = this.resolveAuth(model, options);
     if (auth.ok === false) return auth.error;
 
-    const maxRetries = options?.maxRetries ?? 3;
-    let attempt = 0;
-
-    while (true) {
-      let result: AssistantMessage;
-      try {
-        result = await auth.provider.complete(model, context, auth.resolvedOptions);
-      } catch (err) {
-        // Provider.complete 同步抛错（少见，理想情况应自己捕获推到流）→ 包装为 error 结果
-        return createErrorAssistantMessage(
-          model,
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-
-      // 成功 / 业务错误（非网络/服务端）→ 直接返回
-      if (result.stopReason !== "error") return result;
-
-      // 不可重试的错误 → 直接返回
-      const errorMsg = result.errorMessage ?? "";
-      if (!isRetryableAssistantError(errorMsg)) return result;
-
-      // 已达最大重试次数 → 返回最后一次的错误
-      if (attempt >= maxRetries) return result;
-
-      // 用户已 abort → 不再重试
-      if (options?.signal?.aborted) return result;
-
-      // 指数退避：1s, 2s, 4s, 8s（封顶 10s）
-      const delay = Math.min(1000 * 2 ** attempt, 10000);
-      await new Promise<void>((resolve) => setTimeout(resolve, delay));
-      attempt++;
+    try {
+      return await auth.provider.complete(model, context, auth.resolvedOptions);
+    } catch (err) {
+      return createErrorAssistantMessage(
+        model,
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 
