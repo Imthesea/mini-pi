@@ -270,6 +270,7 @@ function openAICompatibleStream(
         await options.onPayload(params, model);
       }
 
+      // TODO: 将 options?.signal 传给 SDK，实现真正的请求取消
       const sdkStream = await client.chat.completions.create(params);
 
       // debug: 响应信息（OpenAI SDK 的流不直接暴露 HTTP response，这里给基本信息）
@@ -367,9 +368,10 @@ function openAICompatibleStream(
           args = {};
         }
         completedToolCalls.push({ type: "toolCall", id: tc.id, name: tc.name, arguments: args });
+        // TOOL_INDEX_OFFSET = 2: 预留 0=文本、1=思考
         stream.push({
           type: "toolcall_end",
-          contentIndex: index,
+          contentIndex: index + 2,
           toolCall: { type: "toolCall", id: tc.id, name: tc.name, arguments: args },
           partial: { ...initialPartial },
         });
