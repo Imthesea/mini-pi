@@ -1,9 +1,10 @@
 /**
  * OpenAI Provider 实现。
- * 共用代码见 `./openai-compat-base.js`,本文件承载 OpenAI 特有配置。
+ * 共用代码见 `./openai-compat-base.js`,本文件仅承载 OpenAI 特有配置。
  *
- * 过渡状态:本文件还包含 DeepSeek 相关代码(`DEEPSEEK_MODELS` / `DeepSeekProvider` / `deepseekProvider()`),
- * Task 2 会把它们拆到独立 `./deepseek.js`。本文件最终会精简到只剩 OpenAI 部分(~30 行)。
+ * DeepSeek 已拆为独立文件 `./deepseek.js`,这里不再包含 DeepSeek 相关代码。
+ *
+ * 为了向后兼容,本文件仍 re-export 共用符号,直到 Task 3 清理为止。
  */
 
 export {
@@ -53,43 +54,4 @@ class OpenAIProvider extends BaseOpenAICompatProvider {
  */
 export function openaiProvider(): Provider<"openai-completions"> {
   return new OpenAIProvider();
-}
-
-// ── DeepSeek 过渡代码 (Task 2 拆走) ──
-
-/** DeepSeek 模型列表 */
-const DEEPSEEK_MODELS: Record<string, Model<"openai-completions">> = {
-  "deepseek-v4-flash": {
-    id: "deepseek-v4-flash",
-    name: "DeepSeek-V4-Flash",
-    api: "openai-completions",
-    provider: "deepseek",
-    baseUrl: "https://api.deepseek.com",
-    reasoning: false,
-    input: ["text"],
-    cost: { input: 0.14, output: 0.28 },
-    contextWindow: 128000,
-    maxTokens: 8192,
-  },
-};
-
-class DeepSeekProvider extends BaseOpenAICompatProvider {
-  constructor() {
-    const config: OpenAICompatConfig = {
-      id: "deepseek",
-      name: "DeepSeek",
-      baseUrl: "https://api.deepseek.com",
-      envVar: "DEEPSEEK_API_KEY",
-      reasoningFormat: "deepseek",
-      models: DEEPSEEK_MODELS,
-    };
-    super(config);
-  }
-}
-
-/**
- * 创建 DeepSeek Provider 实例(OpenAI 兼容接口)。
- */
-export function deepseekProvider(): Provider<"openai-completions"> {
-  return new DeepSeekProvider();
 }

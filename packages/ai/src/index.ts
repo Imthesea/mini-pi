@@ -20,7 +20,8 @@ export { EventStream, AssistantMessageEventStream } from "./stream/index.js";
 export { envApiKey } from "./auth/index.js";
 
 // Provider 实现
-export { openaiProvider, deepseekProvider } from "./api/openai.js";
+export { openaiProvider } from "./api/openai.js";
+export { deepseekProvider } from "./api/deepseek.js";
 export { anthropicProvider } from "./api/anthropic.js";
 
 // 类型（全部 re-export）

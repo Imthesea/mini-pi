@@ -6,7 +6,7 @@
  */
 
 import { createModels } from "../src/provider/index.js";
-import { deepseekProvider } from "../src/api/openai.js";
+import { deepseekProvider } from "../src/api/deepseek.js";
 import { envApiKey } from "../src/auth/index.js";
 
 console.log("=== Example 03: DeepSeek 流式对话 ===\n");
