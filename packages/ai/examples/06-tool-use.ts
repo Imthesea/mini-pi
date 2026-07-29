@@ -46,16 +46,21 @@ console.log(`工具: ${getWeatherTool.name}`);
 console.log(`问题: 北京今天天气怎么样？\n`);
 
 // 流式调用（带工具）
-const stream = models.stream(model, {
-  messages: [{ role: "user", content: "北京今天天气怎么样？", timestamp: Date.now() }],
-  tools: [getWeatherTool],
-  maxTokens: 500,
-  onPayload: (payload) => {
-    const p = payload as any;
-    console.log(`[DEBUG] 工具数: ${p.tools?.length}`);
-    return undefined;
+const stream = models.stream(
+  model,
+  {
+    messages: [{ role: "user", content: "北京今天天气怎么样？", timestamp: Date.now() }],
+    tools: [getWeatherTool],
   },
-});
+  {
+    maxTokens: 500,
+    onPayload: (payload) => {
+      const p = payload as any;
+      console.log(`[DEBUG] 工具数: ${p.tools?.length}`);
+      return undefined;
+    },
+  },
+);
 
 let hasToolCall = false;
 

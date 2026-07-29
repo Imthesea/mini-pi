@@ -17,7 +17,7 @@ const hasKey = envApiKey("OPENAI_API_KEY");
 console.log(`OPENAI_API_KEY: ${hasKey ? "✅ 已设置" : "⚠️ 未设置（使用内联 mock）"}\n`);
 
 // ── 内联 mock Provider ──
-const models_attr: Model<"openai-completions">[] = [{
+const mockModels: Model<"openai-completions">[] = [{
   id: "gpt-5.5",
   name: "GPT-5.5",
   api: "openai-completions",
@@ -36,8 +36,8 @@ function createMockOpenAIProvider(): Provider<"openai-completions"> {
     name: "OpenAI (mock)",
     baseUrl: "https://api.openai.com/v1",
     getApiKey: () => hasKey ?? "mock-key",
-    getModels: () => models_attr,
-    getModel: (id: string) => models_attr.find((m) => m.id === id),
+    getModels: () => mockModels,
+    getModel: (id: string) => mockModels.find((m) => m.id === id),
 
     stream(model: Model<"openai-completions">, context: Context) {
       const stream = new AssistantMessageEventStream();
@@ -80,12 +80,16 @@ const models = createModels();
 models.set(createMockOpenAIProvider());
 console.log(`✅ 已注册: ${models.list().map((p) => p.name).join(", ")}`);
 
-const model = models.getModel("openai", "gpt-5.5")!;
-console.log(`✅ 模型: ${model.name} | Context: ${model.contextWindow.toLocaleString()} tokens`);
+const found = models.getModel("openai", "gpt-5.5");
+if (!found) {
+  console.error("❌ 找不到模型 gpt-5.5");
+  process.exit(1);
+}
+console.log(`✅ 模型: ${found.name} | Context: ${found.contextWindow.toLocaleString()} tokens`);
 
 // 流式调用
 console.log("\n📡 流式调用:\n");
-const stream = models.stream(model, {
+const stream = models.stream(found, {
   messages: [{ role: "user", content: "Hello!", timestamp: Date.now() }],
 });
 

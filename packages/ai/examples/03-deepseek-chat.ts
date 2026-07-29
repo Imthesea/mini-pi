@@ -37,18 +37,21 @@ console.log(`   最大输出: ${model.maxTokens.toLocaleString()} tokens\n`);
 console.log("用户: 用一句话介绍你自己\n");
 console.log("📡 流式响应:\n");
 
-const stream = models.stream(model, {
-  messages: [{ role: "user", content: "用一句话介绍你自己", timestamp: Date.now() }],
-  maxTokens: 200,
-  onPayload: (payload) => {
-    const p = payload as any;
-    console.log(`[DEBUG] 请求模型: ${p.model}, 消息数: ${p.messages?.length}`);
-    return undefined;
+const stream = models.stream(
+  model,
+  { messages: [{ role: "user", content: "用一句话介绍你自己", timestamp: Date.now() }] },
+  {
+    maxTokens: 200,
+    onPayload: (payload) => {
+      const p = payload as any;
+      console.log(`[DEBUG] 请求模型: ${p.model}, 消息数: ${p.messages?.length}`);
+      return undefined;
+    },
+    onResponse: () => {
+      console.log("[DEBUG] 收到响应");
+    },
   },
-  onResponse: () => {
-    console.log("[DEBUG] 收到响应");
-  },
-});
+);
 
 process.stdout.write("  ");
 let fullText = "";

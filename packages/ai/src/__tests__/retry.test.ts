@@ -37,6 +37,18 @@ describe("isRetryableAssistantError", () => {
     expect(isRetryableAssistantError(new Error("permission denied"))).toBe(false);
   });
 
+  it("可重试：rate_limit_exceeded（之前被错判为不可重试）", () => {
+    expect(isRetryableAssistantError(new Error("rate_limit_exceeded"))).toBe(true);
+  });
+
+  it("可重试：HTTP 429", () => {
+    expect(isRetryableAssistantError(new Error("HTTP 429 too many requests"))).toBe(true);
+  });
+
+  it("可重试：too many requests", () => {
+    expect(isRetryableAssistantError(new Error("Too Many Requests"))).toBe(true);
+  });
+
   it("处理字符串错误", () => {
     expect(isRetryableAssistantError("timeout error")).toBe(true);
   });

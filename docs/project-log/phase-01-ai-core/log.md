@@ -26,18 +26,17 @@
 ### Task 4+5: OpenAI + DeepSeek API
 - `src/api/openai.ts`：OpenAI Chat Completions + DeepSeek
 - 共用 `createOpenAICompatibleProvider()` 工厂，通过 `reasoningFormat` 区分
-- `src/utils/text.ts`、`src/api/transform-messages.ts`
+- `src/utils/transform-messages.ts`（注意：早期在 `api/` 目录，代码审查 #7 后移到 `utils/`）
 - DeepSeek 真实 API 验证通过 ✅
 - OpenAI 需代理（代码就绪）
 
-### Task 6: Anthropic API（mock）
-- `src/api/anthropic.ts`：mock 实现，无 API Key 时可验证框架流程
-- 等真实 Key 后替换
+### Task 6: Anthropic API（真实 SDK）
+- `src/api/anthropic.ts`：`@anthropic-ai/sdk` 真实调用，事件流映射
+- 等用户提供 ANTHROPIC_API_KEY 后可端到端验证
 
-### Task 7: 错误处理 + 工具调用 + 多轮对话
+### Task 7：错误处理 + 工具调用 + 多轮对话
 - `src/utils/retry.ts`：错误分类（可重试/不可重试）
 - `src/utils/error-body.ts`：跨 Provider 错误规范化
-- `src/utils/json-parse.ts`：流式 JSON 解析
 - `example/06-tool-use.ts`：工具调用验证 ✅
 - `example/07-multi-turn.ts`：多轮对话 + 工具结果注入 ✅
 - 修复：OpenAI 消息转换支持 `reasoning_content` 回传（DeepSeek 要求）
@@ -56,7 +55,7 @@
 | `example 02-anthropic-mock` | ✅（用户批准） |
 | `example 04-openai-mock` | ✅（用户批准） |
 
-**测试**: vitest 41 passed（7 个测试文件），tsc 零错误
+**测试**: vitest 55 passed（7 个测试文件），tsc 零错误
 
 ## 代码审查修复
 
@@ -132,18 +131,19 @@ packages/ai/
     provider/index.ts
     stream/index.ts
     api/
-      anthropic.ts          (mock)
+      anthropic.ts          (真实 SDK)
       openai.ts             (OpenAI + DeepSeek)
-      transform-messages.ts
     utils/
-      text.ts, retry.ts, error-body.ts, json-parse.ts
-    __tests/
+      assistant-message.ts, retry.ts, error-body.ts, transform-messages.ts
+    __tests__/
       auth.test.ts, stream.test.ts, provider.test.ts
       transform-messages.test.ts, retry.test.ts
+      error-body.test.ts, openai-messages.test.ts
   examples/
     01-core-types.ts        ✅
-    02-auth-and-models.ts   ⚠️ (OpenAI 需代理)
+    02-anthropic-mock.ts    ✅（已批准）
     03-deepseek-chat.ts     ✅
+    04-openai-mock.ts       ✅（已批准）
     06-tool-use.ts          ✅
     07-multi-turn.ts        ✅
 ```

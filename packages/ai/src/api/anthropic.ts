@@ -18,6 +18,7 @@ import type {
   Model,
   StopReason,
   StreamOptions,
+  TextContent,
   ToolCall,
 } from "../types.js";
 import type { Provider } from "../provider/index.js";
@@ -25,6 +26,8 @@ import { defaultComplete } from "../provider/index.js";
 import { AssistantMessageEventStream } from "../stream/index.js";
 import { envApiKey } from "../auth/index.js";
 import { transformMessages } from "../utils/transform-messages.js";
+import { normalizeProviderError } from "../utils/error-body.js";
+import { createErrorAssistantMessage } from "../utils/assistant-message.js";
 
 // ── 模型列表 ──
 
@@ -101,7 +104,7 @@ function convertMessages(messages: Context["messages"]): MessageParam[] {
         content: [{
           type: "tool_result" as const,
           tool_use_id: msg.toolCallId,
-          content: msg.content.filter((c) => c.type === "text").map((c) => (c as any).text).join(""),
+          content: msg.content.filter((c): c is TextContent => c.type === "text").map((c) => c.text).join(""),
           is_error: msg.isError,
         }],
       });
@@ -116,7 +119,9 @@ function convertTools(tools: Context["tools"]): AnthropicTool[] {
   return tools.map((t) => ({
     name: t.name,
     description: t.description,
-    input_schema: JSON.parse(JSON.stringify(t.parameters)),
+    // structuredClone 返回 TSchema；Anthropic 期望 InputSchema（带 type 字段的 JSON Schema）。
+    // TypeBox schema 在运行时是 JSON-Schema 兼容对象，这里做一次安全 cast。
+    input_schema: structuredClone(t.parameters) as AnthropicTool["input_schema"],
   }));
 }
 
@@ -184,7 +189,11 @@ function anthropicStream(
         if (modified !== undefined) Object.assign(params, modified);
       }
 
-      const sdkStream = client.messages.stream(params);
+      // abort signal 透传：用户触发 abort 时真正中断 SDK 请求
+      const sdkStream = client.messages.stream(
+        params,
+        options?.signal ? { signal: options.signal } : undefined,
+      );
 
       let currentPartial = createEmptyPartial(model);
       let contentIndex = 0;
@@ -245,9 +254,22 @@ function anthropicStream(
               stream.push({ type: "thinking_end", contentIndex, content: accumulatedThinking, partial: { ...currentPartial } });
             }
             if (currentToolIndex >= 0) {
-              let args = {};
-              try { args = JSON.parse(accumulatedToolArgs); } catch { /* 忽略解析失败 */ }
-              const tc: ToolCall = { type: "toolCall", id: currentToolId, name: currentToolName, arguments: args };
+              let args: Record<string, any> = {};
+              let parseError: string | undefined;
+              try {
+                args = JSON.parse(accumulatedToolArgs);
+              } catch (err: unknown) {
+                // 解析失败：保留原始内容供调用方诊断，arguments 留空以避免误用
+                parseError = err instanceof Error ? err.message : String(err);
+              }
+              const tc: ToolCall = {
+                type: "toolCall",
+                id: currentToolId,
+                name: currentToolName,
+                arguments: args,
+                rawArguments: accumulatedToolArgs,
+                ...(parseError ? { parseError } : {}),
+              };
               completedToolCalls.push(tc);
               stream.push({ type: "toolcall_end", contentIndex: currentToolIndex, toolCall: tc, partial: { ...currentPartial } });
             }
@@ -301,11 +323,13 @@ function anthropicStream(
           }
         }
       }
-    } catch (error: any) {
+    } catch (error) {
+      const norm = normalizeProviderError(error);
+      const statusPart = norm.status ? ` [HTTP ${norm.status}]` : "";
       stream.push({
         type: "error",
         reason: "error",
-        error: createErrorAssistantMessage(model, `Anthropic 请求失败: ${error.message ?? error}`),
+        error: createErrorAssistantMessage(model, `Anthropic 请求失败${statusPart}: ${norm.message}`),
       });
     }
   })();
@@ -318,7 +342,7 @@ function createEmptyPartial(model: Model<"anthropic-messages">): AssistantMessag
     role: "assistant",
     content: [],
     api: "anthropic-messages",
-    provider: "anthropic",
+    provider: model.provider,
     model: model.id,
     usage: { input: 0, output: 0, totalTokens: 0, cost: { input: 0, output: 0, total: 0 } },
     stopReason: "stop",
@@ -333,18 +357,4 @@ function mapStopReason(raw: string | null | undefined): StopReason {
     case "tool_use": return "toolUse";
     default: return "stop";
   }
-}
-
-function createErrorAssistantMessage(model: Model<any>, errorMessage: string): AssistantMessage {
-  return {
-    role: "assistant",
-    content: [],
-    api: model.api,
-    provider: model.provider,
-    model: model.id,
-    usage: { input: 0, output: 0, totalTokens: 0, cost: { input: 0, output: 0, total: 0 } },
-    stopReason: "error",
-    errorMessage,
-    timestamp: Date.now(),
-  };
 }

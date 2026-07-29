@@ -42,6 +42,10 @@ export interface ToolCall {
   id: string;
   name: string;
   arguments: Record<string, any>;
+  /** 累积的原始 JSON 字符串（用于解析失败的诊断） */
+  rawArguments?: string;
+  /** JSON 解析失败时的错误信息（设置后表示 arguments 不可信） */
+  parseError?: string;
 }
 
 // ── 消息 ──
@@ -151,6 +155,8 @@ export interface StreamOptions {
   signal?: AbortSignal;
   apiKey?: string;
   reasoning?: boolean | "low" | "medium" | "high";
+  /** 可重试的最大次数（不含首次调用）。默认 3。设为 0 禁用重试。 */
+  maxRetries?: number;
   /** 请求发出前的回调：可检查或替换原始请求体，用于 debug */
   onPayload?: (payload: unknown, model: Model<Api>) => unknown | undefined | Promise<unknown | undefined>;
   /** 收到 HTTP 响应后的回调：可检查响应头、状态码等元信息 */

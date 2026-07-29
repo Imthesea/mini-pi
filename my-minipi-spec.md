@@ -137,14 +137,17 @@ my-mimipi/                  # ✅ Phase 01 完成
       stream/index.ts       # EventStream + AssistantMessageEventStream
       api/
         openai.ts           # OpenAI + DeepSeek（真实 API ✅）
-        anthropic.ts        # Anthropic Messages API（真实 SDK）
+        anthropic.ts        # Anthropic Messages API（真实 SDK ✅）
+      utils/
         transform-messages.ts
-      utils/text.ts, retry.ts, error-body.ts, json-parse.ts
-      __tests/              # 5 文件, 29 tests ✅
+        assistant-message.ts
+        retry.ts, error-body.ts
+      __tests__              # 7 文件, 55 tests ✅
     examples/
       01-core-types.ts      ✅
-      02-auth-and-models.ts ⚠️ OpenAI 需代理
+      02-anthropic-mock.ts  ✅
       03-deepseek-chat.ts   ✅
+      04-openai-mock.ts     ✅
       06-tool-use.ts        ✅
       07-multi-turn.ts      ✅
 
@@ -258,12 +261,12 @@ Phase 7: 集成验证 + 样例           (端到端)
 **目标**：Anthropic（mock）+ OpenAI（真实 API 需代理）
 
 **实际产出**：
-- Anthropic：`src/api/anthropic.ts` — mock 实现（等真实 Key）
+- Anthropic：`src/api/anthropic.ts` — 真实 SDK 实现（`@anthropic-ai/sdk`）
 - OpenAI：`src/api/openai.ts` — openaiProvider() + 消息转换 + 流式事件映射
-- 共用：`src/api/transform-messages.ts`, `src/utils/text.ts`
+- 共用：`src/utils/transform-messages.ts`
 
 **交付标准 (DoD)**：
-- [x] `api/anthropic.ts`：mock 实现，无 Key 时可验证框架
+- [x] `api/anthropic.ts`：真实 SDK 实现，依赖 ANTHROPIC_API_KEY
 - [x] `api/openai.ts`：openaiProvider() + stream 实现（代码就绪，需代理验证）
 - [x] 消息/工具格式转换、流式事件映射
 - [x] 样例 `examples/02` 改用真实 openaiProvider（⚠️ 需代理）
@@ -272,7 +275,7 @@ Phase 7: 集成验证 + 样例           (端到端)
 
 **目标**：DeepSeek 复用 OpenAI 实现，真实 API 验证通过
 
-**实际产出**：`src/api/openai.ts`（新增 `deepseekProvider()`）, `src/utils/json-parse.ts`
+**实际产出**：`src/api/openai.ts`（新增 `deepseekProvider()`）
 
 **交付标准 (DoD)**：
 - [x] `deepseekProvider()` 导出，baseUrl 指向 `https://api.deepseek.com`

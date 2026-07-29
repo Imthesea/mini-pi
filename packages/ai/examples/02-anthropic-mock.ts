@@ -18,7 +18,7 @@ const hasKey = envApiKey("ANTHROPIC_API_KEY");
 console.log(`ANTHROPIC_API_KEY: ${hasKey ? "✅ 已设置" : "⚠️ 未设置（使用内联 mock）"}\n`);
 
 // ── 内联 mock Provider（仅此 example 使用，业务代码中不存在） ──
-const models_attr: Model<"anthropic-messages">[] = [{
+const mockModels: Model<"anthropic-messages">[] = [{
   id: "claude-sonnet-4-20250514",
   name: "Claude Sonnet 4",
   api: "anthropic-messages",
@@ -37,8 +37,8 @@ function createMockAnthropicProvider(): Provider<"anthropic-messages"> {
     name: "Anthropic (mock)",
     baseUrl: "https://api.anthropic.com",
     getApiKey: () => hasKey ?? "mock-key",
-    getModels: () => models_attr,
-    getModel: (id: string) => models_attr.find((m) => m.id === id),
+    getModels: () => mockModels,
+    getModel: (id: string) => mockModels.find((m) => m.id === id),
 
     stream(model: Model<"anthropic-messages">, context: Context) {
       const stream = new AssistantMessageEventStream();
@@ -82,12 +82,16 @@ const models = createModels();
 models.set(createMockAnthropicProvider());
 console.log(`✅ 已注册: ${models.list().map((p) => p.name).join(", ")}`);
 
-const model = models.getModel("anthropic", "claude-sonnet-4-20250514")!;
-console.log(`✅ 模型: ${model.name} | Context: ${model.contextWindow.toLocaleString()} tokens`);
+const found = models.getModel("anthropic", "claude-sonnet-4-20250514");
+if (!found) {
+  console.error("❌ 找不到模型 claude-sonnet-4-20250514");
+  process.exit(1);
+}
+console.log(`✅ 模型: ${found.name} | Context: ${found.contextWindow.toLocaleString()} tokens`);
 
 // 流式调用
 console.log("\n📡 流式调用:\n");
-const stream = models.stream(model, {
+const stream = models.stream(found, {
   messages: [{ role: "user", content: "Hello!", timestamp: Date.now() }],
   systemPrompt: "用中文回答",
 });

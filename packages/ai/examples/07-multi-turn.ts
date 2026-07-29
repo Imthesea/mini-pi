@@ -62,11 +62,11 @@ const messages: Message[] = [
 
 console.log("👤 用户: 帮我查一下北京今天天气怎么样\n");
 
-const round1 = models.stream(model, {
-  messages,
-  tools: [getWeatherTool],
-  maxTokens: 500,
-});
+const round1 = models.stream(
+  model,
+  { messages, tools: [getWeatherTool] },
+  { maxTokens: 500 },
+);
 
 let toolToCall: { name: string; arguments: Record<string, any> } | null = null;
 // 保存第一轮完整返回——DeepSeek 要求后续轮次传回 thinking 内容
@@ -124,10 +124,11 @@ messages.push({
 // ── 第二轮：基于工具结果生成最终回答 ──
 console.log("\n📡 第二轮（基于工具结果生成最终回答）:\n");
 
-const round2 = models.stream(model, {
-  messages,
-  maxTokens: 500,
-});
+const round2 = models.stream(
+  model,
+  { messages },
+  { maxTokens: 500 },
+);
 
 for await (const event of round2) {
   switch (event.type) {

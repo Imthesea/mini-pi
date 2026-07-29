@@ -62,4 +62,40 @@ describe("transformMessages", () => {
     const result = transformMessages(messages, textOnlyModel);
     expect(result[0]).toBe(messages[0]);
   });
+
+  it("toolResult 消息中的图片降级为占位文本（多轮对话场景）", () => {
+    const messages: Message[] = [{
+      role: "toolResult",
+      toolCallId: "call_1",
+      toolName: "screenshot",
+      content: [
+        { type: "text", text: "截图内容：" },
+        { type: "image", data: "base64...", mimeType: "image/png" },
+      ],
+      isError: false,
+      timestamp: 0,
+    }];
+
+    const result = transformMessages(messages, textOnlyModel);
+    const content = (result[0] as any).content;
+    expect(content[0]).toEqual({ type: "text", text: "截图内容：" });
+    expect(content[1]).toEqual({ type: "text", text: "[图片]" });
+    // 其它字段保留
+    expect((result[0] as any).toolCallId).toBe("call_1");
+    expect((result[0] as any).toolName).toBe("screenshot");
+  });
+
+  it("toolResult 纯文本消息不变", () => {
+    const messages: Message[] = [{
+      role: "toolResult",
+      toolCallId: "call_1",
+      toolName: "get_weather",
+      content: [{ type: "text", text: "晴天 25°C" }],
+      isError: false,
+      timestamp: 0,
+    }];
+
+    const result = transformMessages(messages, textOnlyModel);
+    expect(result[0]).toBe(messages[0]);
+  });
 });

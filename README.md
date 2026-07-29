@@ -7,7 +7,7 @@
 **Phase 01 完成** ✅ — AI 层（`packages/ai`）已实现。
 
 - 3 个 Provider：Anthropic (mock) / OpenAI / DeepSeek ✅
-- 29 个单元测试通过
+- 54 个单元测试通过
 - DeepSeek 真实 API 流式对话 + 工具调用 + 多轮对话验证通过
 
 ## 快速开始

@@ -3,7 +3,7 @@
  * 覆盖：reasoning_content 回传、tool_calls 序列化、tool 消息格式。
  */
 import { describe, it, expect } from "vitest";
-import { _convertMessages } from "../api/openai.js";
+import { _convertMessages, mapOpenAIFinishReason } from "../api/openai.js";
 import type { Context, UserMessage, AssistantMessage, ToolResultMessage } from "../types.js";
 
 function makeUser(text: string): UserMessage {
@@ -125,5 +125,25 @@ describe("_convertMessages", () => {
     expect(result).toHaveLength(1);
     expect(Array.isArray((result[0] as any).content)).toBe(true);
     expect((result[0] as any).content[1].type).toBe("image_url");
+  });
+});
+
+describe("mapOpenAIFinishReason", () => {
+  it("tool_calls → toolUse", () => {
+    expect(mapOpenAIFinishReason("tool_calls")).toBe("toolUse");
+  });
+
+  it("length → length（之前 buildAssistantMessage 会错误归为 stop）", () => {
+    expect(mapOpenAIFinishReason("length")).toBe("length");
+  });
+
+  it("stop → stop", () => {
+    expect(mapOpenAIFinishReason("stop")).toBe("stop");
+  });
+
+  it("未知值 / null / undefined → stop（默认值）", () => {
+    expect(mapOpenAIFinishReason(null)).toBe("stop");
+    expect(mapOpenAIFinishReason(undefined)).toBe("stop");
+    expect(mapOpenAIFinishReason("content_filter")).toBe("stop");
   });
 });
