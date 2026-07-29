@@ -19,6 +19,9 @@ export { EventStream, AssistantMessageEventStream } from "./stream/index.js";
 // 认证
 export { envApiKey } from "./auth/index.js";
 
+// Provider 实现
+export { openaiProvider, deepseekProvider } from "./api/openai.js";
+
 // 类型（全部 re-export）
 export type * from "./types.js";
 export { hasApi } from "./types.js";
