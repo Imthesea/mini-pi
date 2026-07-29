@@ -179,3 +179,19 @@ export type AssistantMessageEvent =
   | { type: "toolcall_end"; contentIndex: number; toolCall: ToolCall; partial: AssistantMessage }
   | { type: "done"; reason: Exclude<StopReason, "error" | "aborted">; message: AssistantMessage }
   | { type: "error"; reason: "aborted" | "error"; error: AssistantMessage };
+
+// ── 类型守卫 ──
+
+/**
+ * 运行时检查一个 Model 是否属于指定的 API 类型。
+ * 用于动态查找模型的类型窄化。
+ *
+ * @example
+ * const model = models.getModel("anthropic", "claude-sonnet");
+ * if (model && hasApi(model, "anthropic-messages")) {
+ *   // model 的类型在这里窄化为 Model<"anthropic-messages">
+ * }
+ */
+export function hasApi<TApi extends Api>(model: Model<Api>, api: TApi): model is Model<TApi> {
+  return model.api === api;
+}

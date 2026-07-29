@@ -6,7 +6,7 @@
  * 运行：npx tsx examples/01-core-types.ts
  */
 
-import type { Model, Context, UserMessage } from "../src/types.ts";
+import type { Model, Context, UserMessage } from "../src/types.js";
 
 // 创建模型定义
 const model: Model<"anthropic-messages"> = {
