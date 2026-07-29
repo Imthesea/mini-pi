@@ -1,6 +1,11 @@
 /**
  * Provider 接口与 Models 集合。
  * 这是 AI 层的核心框架——管理多个 AI 提供商，分发流式请求。
+ *
+ * 目录结构为可扩展设计：
+ * - Provider 接口：后续可增加 refreshModels、filterModels 等方法
+ * - Models 集合：后续可增加 checkAuth、getAvailable 等方法
+ * - ModelsImpl：私有实现，不暴露到公共 API
  */
 
 import type {
@@ -9,8 +14,8 @@ import type {
   Context,
   Model,
   StreamOptions,
-} from "./types.js";
-import type { AssistantMessageEventStream } from "./stream.js";
+} from "../types.js";
+import type { AssistantMessageEventStream } from "../stream/index.js";
 
 // ── 错误类 ──
 

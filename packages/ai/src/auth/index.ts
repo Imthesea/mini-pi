@@ -1,5 +1,5 @@
 /**
- * 认证模块 —— 整个模块只有一个函数。
+ * 认证模块 —— 当前只有一个函数，后续可扩展（如 OAuth、多环境、凭证刷新等）。
  * 从环境变量读取 API Key，自动加载 .env 文件。
  * 不存储凭证、不刷新 token、不弹登录框。
  */
@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 
 // 加载 packages/ai/.env 文件（如果存在）
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const envPath = resolve(__dirname, "..", ".env");
+const envPath = resolve(__dirname, "..", "..", ".env");
 if (existsSync(envPath)) {
   dotenv.config({ path: envPath });
 } else {

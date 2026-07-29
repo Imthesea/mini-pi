@@ -1,4 +1,6 @@
 /**
+ * 事件流模块 —— 当前只有一个文件，后续可扩展（如缓冲流、合并流、过滤流等）。
+ *
  * 泛型事件流：支持推送事件、异步迭代、最终结果 Promise。
  * T = 事件类型，R = 最终结果类型。
  *
@@ -71,7 +73,7 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
   }
 }
 
-import type { AssistantMessage, AssistantMessageEvent } from "./types.js";
+import type { AssistantMessage, AssistantMessageEvent } from "../types.js";
 
 /**
  * LLM 专用事件流。

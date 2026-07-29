@@ -9,15 +9,15 @@
  */
 
 // 核心框架
-export { createModels } from "./provider.js";
-export type { Provider, Models } from "./provider.js";
-export { ModelsError } from "./provider.js";
+export { createModels } from "./provider/index.js";
+export type { Provider, Models } from "./provider/index.js";
+export { ModelsError } from "./provider/index.js";
 
 // 事件流
-export { EventStream, AssistantMessageEventStream } from "./stream.js";
+export { EventStream, AssistantMessageEventStream } from "./stream/index.js";
 
 // 认证
-export { envApiKey } from "./auth.js";
+export { envApiKey } from "./auth/index.js";
 
 // 类型（全部 re-export）
 export type * from "./types.js";

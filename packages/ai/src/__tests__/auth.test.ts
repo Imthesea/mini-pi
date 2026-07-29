@@ -2,7 +2,7 @@
  * envApiKey 的单元测试。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { envApiKey } from "../auth.js";
+import { envApiKey } from "../auth/index.js";
 
 describe("envApiKey", () => {
   const VAR = "TEST_MIMI_API_KEY";

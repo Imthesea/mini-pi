@@ -6,10 +6,10 @@
  * 运行：npx tsx examples/02-auth-and-models.ts
  */
 
-import { createModels } from "../src/provider.js";
-import { AssistantMessageEventStream } from "../src/stream.js";
-import { envApiKey } from "../src/auth.js";
-import type { Provider, Models } from "../src/provider.js";
+import { createModels } from "../src/provider/index.js";
+import { AssistantMessageEventStream } from "../src/stream/index.js";
+import { envApiKey } from "../src/auth/index.js";
+import type { Provider } from "../src/provider/index.js";
 import type { Api, Model, Context } from "../src/types.js";
 
 // ── 构建 mock Provider ──

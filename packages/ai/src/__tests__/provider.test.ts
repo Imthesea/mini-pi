@@ -2,9 +2,9 @@
  * Provider 与 Models 的单元测试（使用 mock Provider，无需 API Key）。
  */
 import { describe, it, expect } from "vitest";
-import { createModels, ModelsError } from "../provider.js";
-import type { Provider, Models } from "../provider.js";
-import { AssistantMessageEventStream } from "../stream.js";
+import { createModels, ModelsError } from "../provider/index.js";
+import type { Provider, Models } from "../provider/index.js";
+import { AssistantMessageEventStream } from "../stream/index.js";
 import type { Api, Model, Context } from "../types.js";
 
 /** 创建一个 mock Provider 用于测试 */
