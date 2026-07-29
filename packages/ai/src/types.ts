@@ -33,7 +33,7 @@ export interface ThinkingContent {
 export interface ImageContent {
   type: "image";
   data: string;   // base64 编码
-  mimeType: string; // "image/jpeg" | "image/png"
+  mimeType: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 }
 
 /** 工具调用块 */

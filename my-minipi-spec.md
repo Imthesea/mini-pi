@@ -137,7 +137,7 @@ my-mimipi/                  # ✅ Phase 01 完成
       stream/index.ts       # EventStream + AssistantMessageEventStream
       api/
         openai.ts           # OpenAI + DeepSeek（真实 API ✅）
-        anthropic.ts        # Anthropic（mock，待真实 Key）
+        anthropic.ts        # Anthropic Messages API（真实 SDK）
         transform-messages.ts
       utils/text.ts, retry.ts, error-body.ts, json-parse.ts
       __tests/              # 5 文件, 29 tests ✅
@@ -363,7 +363,7 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 
 | 文件 | 作用 |
 |------|------|
-> **当前状态: Phase 01 完成 ✅** — 29 tests passed, DeepSeek 真实验证通过
+> **当前状态: Phase 01 完成 ✅** — 41 tests passed, 3 轮代码审查通过
 > 详见 `docs/project-log/phase-01-ai-core/log.md`
 
 | 文件 | 作用 |
@@ -373,7 +373,7 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 | `packages/ai/src/stream/index.ts` | EventStream 实现（从 pi 原样） |
 | `packages/ai/src/auth/index.ts` | envApiKey + dotenv |
 | `packages/ai/src/api/openai.ts` | OpenAI + DeepSeek Provider |
-| `packages/ai/src/api/anthropic.ts` | Anthropic Provider（mock） |
+| `packages/ai/src/api/anthropic.ts` | Anthropic Provider（真实 SDK） |
 
 ### 6.2 参考文档
 

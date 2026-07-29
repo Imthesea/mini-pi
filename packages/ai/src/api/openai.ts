@@ -68,7 +68,7 @@ interface OpenAICompatibleConfig {
 // ── 消息转换 ──
 
 /** 将统一格式的消息转换为 OpenAI Chat Completions 格式 */
-function convertMessages(messages: Context["messages"]): ChatCompletionMessageParam[] {
+export function _convertMessages(messages: Context["messages"]): ChatCompletionMessageParam[] {
   const result: ChatCompletionMessageParam[] = [];
 
   for (const msg of messages) {
@@ -235,7 +235,7 @@ function openAICompatibleStream(
   const params: OpenAI.Chat.Completions.ChatCompletionCreateParams = {
     model: model.id,
     max_tokens: options?.maxTokens ?? model.maxTokens,
-    messages: convertMessages(messages) as any,
+    messages: _convertMessages(messages) as ChatCompletionMessageParam[],
     tools: convertTools(context.tools),
     stream: true,
     stream_options: { include_usage: true },

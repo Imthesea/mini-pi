@@ -10,13 +10,15 @@ import type {
   MessageCreateParams,
   MessageParam,
   ContentBlock,
-  Tool,
+  Tool as AnthropicTool,
 } from "@anthropic-ai/sdk/resources/messages.mjs";
 import type {
   AssistantMessage,
   Context,
   Model,
+  StopReason,
   StreamOptions,
+  ToolCall,
 } from "../types.js";
 import type { Provider } from "../provider/index.js";
 import { defaultComplete } from "../provider/index.js";
@@ -41,6 +43,18 @@ const ANTHROPIC_MODELS: Record<string, Model<"anthropic-messages">> = {
   },
 };
 
+// ── reasoning 映射 ──
+
+function mapReasoningBudget(level: boolean | "low" | "medium" | "high"): number {
+  if (level === true) return 16000;
+  switch (level) {
+    case "low": return 4000;
+    case "medium": return 8000;
+    case "high": return 32000;
+    default: return 16000;
+  }
+}
+
 // ── 消息转换 ──
 
 function convertMessages(messages: Context["messages"]): MessageParam[] {
@@ -56,7 +70,7 @@ function convertMessages(messages: Context["messages"]): MessageParam[] {
           if (c.type === "image") {
             return {
               type: "image" as const,
-              source: { type: "base64" as const, media_type: c.mimeType as any, data: c.data },
+              source: { type: "base64" as const, media_type: c.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: c.data },
             } as unknown as ContentBlock;
           }
           return { type: "text" as const, text: "" } as ContentBlock;
@@ -66,19 +80,20 @@ function convertMessages(messages: Context["messages"]): MessageParam[] {
     } else if (msg.role === "assistant") {
       result.push({
         role: "assistant",
-        content: msg.content.map((c) => {
-          if (c.type === "text") return { type: "text" as const, text: c.text };
-          if (c.type === "thinking") return { type: "text" as const, text: c.thinking };
-          if (c.type === "toolCall") {
-            return {
-              type: "tool_use" as const,
-              id: c.id,
-              name: c.name,
-              input: c.arguments,
-            };
-          }
-          return { type: "text" as const, text: "" };
-        }),
+        content: msg.content
+          .filter((c) => c.type !== "thinking") // 🔧 跳过 thinking 块——多轮回传不需要
+          .map((c) => {
+            if (c.type === "text") return { type: "text" as const, text: c.text } as ContentBlock;
+            if (c.type === "toolCall") {
+              return {
+                type: "tool_use" as const,
+                id: c.id,
+                name: c.name,
+                input: c.arguments,
+              } as ContentBlock;
+            }
+            return { type: "text" as const, text: "" } as ContentBlock;
+          }),
       });
     } else if (msg.role === "toolResult") {
       result.push({
@@ -96,7 +111,7 @@ function convertMessages(messages: Context["messages"]): MessageParam[] {
   return result;
 }
 
-function convertTools(tools: Context["tools"]): Tool[] {
+function convertTools(tools: Context["tools"]): AnthropicTool[] {
   if (!tools) return [];
   return tools.map((t) => ({
     name: t.name,
@@ -159,7 +174,7 @@ function anthropicStream(
   };
 
   if (options?.reasoning) {
-    (params as any).thinking = { type: "enabled", budget_tokens: 16000 };
+    (params as any).thinking = { type: "enabled", budget_tokens: mapReasoningBudget(options.reasoning) };
   }
 
   (async () => {
@@ -171,72 +186,83 @@ function anthropicStream(
 
       const sdkStream = client.messages.stream(params);
 
-      // TODO: onResponse 暂不实现 — Anthropic SDK 流不直接暴露原始 HTTP response
-
-      const initialPartial: AssistantMessage = {
-        role: "assistant",
-        content: [],
-        api: "anthropic-messages",
-        provider: "anthropic",
-        model: model.id,
-        usage: { input: 0, output: 0, totalTokens: 0, cost: { input: 0, output: 0, total: 0 } },
-        stopReason: "stop",
-        timestamp: Date.now(),
-      };
-
-      stream.push({ type: "start", partial: { ...initialPartial } });
-
+      let currentPartial = createEmptyPartial(model);
       let contentIndex = 0;
-      let currentContent: any = null;
+      // 🔧 累积流式内容，不再依赖 currentContent
+      let accumulatedText = "";
+      let accumulatedThinking = "";
+      let accumulatedToolArgs = "";
+      let currentToolId = "";
+      let currentToolName = "";
+      let currentToolIndex = -1;
+      const completedToolCalls: ToolCall[] = [];
+
+      stream.push({ type: "start", partial: { ...currentPartial } });
 
       for await (const event of sdkStream) {
         switch (event.type) {
           case "message_start":
+            // 🔧 读取真实 input tokens
+            currentPartial.usage.input = event.message.usage.input_tokens;
             break;
 
-          case "content_block_start":
-            currentContent = event.content_block;
-            if (event.content_block.type === "text") {
-              stream.push({ type: "text_start", contentIndex, partial: { ...initialPartial } });
-            } else if (event.content_block.type === "thinking") {
-              stream.push({ type: "thinking_start", contentIndex, partial: { ...initialPartial } });
-            } else if (event.content_block.type === "tool_use") {
-              stream.push({ type: "toolcall_start", contentIndex, partial: { ...initialPartial } });
+          case "content_block_start": {
+            const block = event.content_block;
+            if (block.type === "text") {
+              accumulatedText = "";
+              stream.push({ type: "text_start", contentIndex, partial: { ...currentPartial } });
+            } else if (block.type === "thinking") {
+              accumulatedThinking = "";
+              stream.push({ type: "thinking_start", contentIndex, partial: { ...currentPartial } });
+            } else if (block.type === "tool_use") {
+              accumulatedToolArgs = "";
+              currentToolId = block.id;
+              currentToolName = block.name;
+              currentToolIndex = contentIndex;
+              stream.push({ type: "toolcall_start", contentIndex, partial: { ...currentPartial } });
             }
             break;
+          }
 
           case "content_block_delta":
             if (event.delta.type === "text_delta") {
-              stream.push({ type: "text_delta", contentIndex, delta: event.delta.text, partial: { ...initialPartial } });
+              accumulatedText += event.delta.text;
+              stream.push({ type: "text_delta", contentIndex, delta: event.delta.text, partial: { ...currentPartial } });
             } else if (event.delta.type === "thinking_delta") {
-              stream.push({ type: "thinking_delta", contentIndex, delta: event.delta.thinking, partial: { ...initialPartial } });
+              accumulatedThinking += event.delta.thinking;
+              stream.push({ type: "thinking_delta", contentIndex, delta: event.delta.thinking, partial: { ...currentPartial } });
             } else if (event.delta.type === "input_json_delta") {
-              stream.push({ type: "toolcall_delta", contentIndex, delta: event.delta.partial_json, partial: { ...initialPartial } });
+              accumulatedToolArgs += event.delta.partial_json;
+              stream.push({ type: "toolcall_delta", contentIndex, delta: event.delta.partial_json, partial: { ...currentPartial } });
             }
             break;
 
-          case "content_block_stop":
-            if (currentContent?.type === "text") {
-              stream.push({ type: "text_end", contentIndex, content: currentContent.text ?? "", partial: { ...initialPartial } });
-            } else if (currentContent?.type === "thinking") {
-              stream.push({ type: "thinking_end", contentIndex, content: currentContent.thinking ?? "", partial: { ...initialPartial } });
-            } else if (currentContent?.type === "tool_use") {
-              stream.push({
-                type: "toolcall_end",
-                contentIndex,
-                toolCall: { type: "toolCall", id: currentContent.id, name: currentContent.name, arguments: currentContent.input ?? {} },
-                partial: { ...initialPartial },
-              });
+          case "content_block_stop": {
+            if (accumulatedText) {
+              stream.push({ type: "text_end", contentIndex, content: accumulatedText, partial: { ...currentPartial } });
+            }
+            if (accumulatedThinking) {
+              stream.push({ type: "thinking_end", contentIndex, content: accumulatedThinking, partial: { ...currentPartial } });
+            }
+            if (currentToolIndex >= 0) {
+              let args = {};
+              try { args = JSON.parse(accumulatedToolArgs); } catch { /* 忽略解析失败 */ }
+              const tc: ToolCall = { type: "toolCall", id: currentToolId, name: currentToolName, arguments: args };
+              completedToolCalls.push(tc);
+              stream.push({ type: "toolcall_end", contentIndex: currentToolIndex, toolCall: tc, partial: { ...currentPartial } });
             }
             contentIndex++;
-            currentContent = null;
             break;
+          }
 
           case "message_delta":
-            initialPartial.usage.output = event.usage.output_tokens;
+            currentPartial.usage.output = event.usage.output_tokens;
+            // 🔧 映射 stopReason
+            currentPartial.stopReason = mapStopReason(event.delta.stop_reason);
             break;
 
           case "message_stop": {
+            // 🔧 收集完整内容（用于 done 事件的 message.content）
             const finalMsg = await sdkStream.finalMessage();
             const content: AssistantMessage["content"] = [];
             for (const block of finalMsg.content ?? []) {
@@ -249,12 +275,12 @@ function anthropicStream(
               }
             }
 
-            const inputCost = (model.cost.input / 1_000_000) * initialPartial.usage.input;
-            const outputCost = (model.cost.output / 1_000_000) * initialPartial.usage.output;
+            const inputCost = (model.cost.input / 1_000_000) * currentPartial.usage.input;
+            const outputCost = (model.cost.output / 1_000_000) * currentPartial.usage.output;
 
             stream.push({
               type: "done",
-              reason: "stop",
+              reason: currentPartial.stopReason as Exclude<StopReason, "error" | "aborted">,
               message: {
                 role: "assistant",
                 content,
@@ -262,19 +288,17 @@ function anthropicStream(
                 provider: "anthropic",
                 model: model.id,
                 usage: {
-                  input: initialPartial.usage.input,
-                  output: initialPartial.usage.output,
-                  totalTokens: initialPartial.usage.input + initialPartial.usage.output,
+                  input: currentPartial.usage.input,
+                  output: currentPartial.usage.output,
+                  totalTokens: currentPartial.usage.input + currentPartial.usage.output,
                   cost: { input: inputCost, output: outputCost, total: inputCost + outputCost },
                 },
-                stopReason: "stop",
+                stopReason: currentPartial.stopReason,
                 timestamp: Date.now(),
               },
             });
             break;
           }
-
-          // Anthropic SDK 将错误作为异常抛出，不走这里
         }
       }
     } catch (error: any) {
@@ -287,6 +311,28 @@ function anthropicStream(
   })();
 
   return stream;
+}
+
+function createEmptyPartial(model: Model<"anthropic-messages">): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [],
+    api: "anthropic-messages",
+    provider: "anthropic",
+    model: model.id,
+    usage: { input: 0, output: 0, totalTokens: 0, cost: { input: 0, output: 0, total: 0 } },
+    stopReason: "stop",
+    timestamp: Date.now(),
+  };
+}
+
+function mapStopReason(raw: string | null | undefined): StopReason {
+  switch (raw) {
+    case "end_turn": return "stop";
+    case "max_tokens": return "length";
+    case "tool_use": return "toolUse";
+    default: return "stop";
+  }
 }
 
 function createErrorAssistantMessage(model: Model<any>, errorMessage: string): AssistantMessage {

@@ -53,8 +53,59 @@
 | `example 03` DeepSeek 流式 | ✅ |
 | `example 06` 工具调用 | ✅ |
 | `example 07` 多轮对话 | ✅ |
+| `example 02-anthropic-mock` | ✅（用户批准） |
+| `example 04-openai-mock` | ✅（用户批准） |
 
-## 关键决策
+**测试**: vitest 41 passed（7 个测试文件），tsc 零错误
+
+## 代码审查修复
+
+### 第一轮（#1-#15）
+| # | 问题 | 处置 |
+|---|------|------|
+| 1 | pnpm-workspace.yaml 非法 YAML | approve-builds 配置 |
+| 3 | toolcall_end contentIndex 不一致 | 统一 index+2 |
+| 4 | signal 未传 SDK | TODO 标注 |
+| 5 | convertMessages 无测试 | 新增 openai-messages.test.ts |
+| 6a | parseStreamingJson 无调用 | 删除 |
+| 6b | normalizeProviderError 无测试 | 新增 error-body.test.ts |
+| 7 | transform-messages.ts 位置 | api/ → utils/ |
+| 8 | mock setInterval 泄漏 | 改为同步 push（后被替换） |
+| 9 | stopReason 映射不全 | 补 length 映射 |
+| 10 | onResponse 硬编码假数据 | 改为 TODO |
+| 11 | complete() 重复实现 | 抽 defaultComplete() |
+| 12 | partial 复制 N 次 | pi 协议兼容，不动 |
+| 13 | examples 编号不连续 | 补 02/04 占位，删冗余 02 |
+| 14 | 缺 README | 新增 |
+| 15 | cache cost 永远 0 | ModelCost/Usage 删除 cache 字段 |
+
+### 第二轮（#16-#20）
+| # | 问题 | 处置 |
+|---|------|------|
+| 16 | 缺 engines 字段 | 加 `"node": ">=20"` |
+| 17 | vitest coverage | 不改，Phase 02 |
+| 18 | allowBuilds 过时 | 不改，正常工作 |
+| 19 | transformMessages 路径 | #7 已修复 |
+| 20 | onPayload 返回值未消费 | Object.assign 应用替换 |
+
+### 第三轮（A-K）
+| # | 问题 | 处置 |
+|---|------|------|
+| A | tool args 永远是 {} | 累积 input_json_delta，stop 时 parse |
+| B | text/thinking_end 空串 | 累积 delta.text/delta.thinking |
+| C | input_tokens 没读 | 从 message_start 读取 |
+| D | stopReason 硬编码 | mapStopReason() 映射 |
+| E | thinking 块强转 text | 多轮回传跳过 thinking |
+| F | reasoning 强度没映射 | low=4000/med=8000/high=32000 |
+| G | SDK Tool 命名冲突 | import as AnthropicTool |
+| H | convertMessages 没真测 | 重写为 7 个真实测试 |
+| I | openai as any | as ChatCompletionMessageParam[] |
+| J | currentContent any | 累积字符串替代 |
+| K | mimeType string | 联合类型 |
+
+### 重大规则
+- **业务代码绝对禁止 mock**：`src/api/anthropic.ts` 从 mock 改为真实 SDK 实现
+- **mock 仅限 examples 且需用户批准**：已记录到记忆系统
 
 1. **可扩展优先**：每个模块以目录组织，通过 `index.ts` 导出。后续扩展只需在目录内新增文件
 2. **认证极简化**：整个 auth 模块只有一个 `envApiKey()` 函数 + dotenv
