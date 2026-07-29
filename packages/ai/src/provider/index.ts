@@ -52,8 +52,21 @@ export interface Provider<TApi extends Api = Api> {
 
   /** 流式调用模型 */
   stream(model: Model<TApi>, context: Context, options?: StreamOptions): AssistantMessageEventStream;
-  /** 非流式调用（收集流的结果） */
+  /** 非流式调用：默认实现 = stream().result()，实现方可覆盖 */
   complete(model: Model<TApi>, context: Context, options?: StreamOptions): Promise<AssistantMessage>;
+}
+
+/**
+ * 默认的 complete() 实现：收集流式结果。
+ * Provider 实现方可以复用此函数，避免重复编写相同的 stream().result()。
+ */
+export function defaultComplete(
+  provider: Provider<Api>,
+  model: Model<Api>,
+  context: Context,
+  options?: StreamOptions,
+): Promise<AssistantMessage> {
+  return provider.stream(model, context, options).result();
 }
 
 // ── Models 接口 ──

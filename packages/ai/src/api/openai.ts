@@ -14,10 +14,11 @@ import type {
   StreamOptions,
 } from "../types.js";
 import type { Provider } from "../provider/index.js";
+import { defaultComplete } from "../provider/index.js";
 import { AssistantMessageEventStream } from "../stream/index.js";
 import { envApiKey } from "../auth/index.js";
 import { contentText } from "../utils/text.js";
-import { transformMessages } from "./transform-messages.js";
+import { transformMessages } from "../utils/transform-messages.js";
 
 // ── 模型列表 ──
 
@@ -31,7 +32,7 @@ const OPENAI_MODELS: Record<string, Model<"openai-completions">> = {
     baseUrl: "https://api.openai.com/v1",
     reasoning: true,
     input: ["text", "image"],
-    cost: { input: 2.5, output: 10.0, cacheRead: 1.25, cacheWrite: 2.5 },
+    cost: { input: 2.5, output: 10.0 },
     contextWindow: 128000,
     maxTokens: 16384,
   },
@@ -47,7 +48,7 @@ const DEEPSEEK_MODELS: Record<string, Model<"openai-completions">> = {
     baseUrl: "https://api.deepseek.com",
     reasoning: false,
     input: ["text"],
-    cost: { input: 0.14, output: 0.28, cacheRead: 0.014, cacheWrite: 0.14 },
+    cost: { input: 0.14, output: 0.28 },
     contextWindow: 128000,
     maxTokens: 8192,
   },
@@ -198,8 +199,8 @@ function createOpenAICompatibleProvider(config: OpenAICompatibleConfig): Provide
       return openAICompatibleStream(config, model, context, options);
     },
 
-    async complete(model: Model<"openai-completions">, context: Context, options?: StreamOptions) {
-      return this.stream(model, context, options).result();
+    async complete(model, context, options) {
+      return defaultComplete(this, model, context, options);
     },
   };
 }
@@ -265,18 +266,16 @@ function openAICompatibleStream(
   // 异步执行流式请求
   (async () => {
     try {
-      // debug: 让上层检查请求体
+      // debug: 让上层检查/替换请求体
       if (options?.onPayload) {
-        await options.onPayload(params, model);
+        const modified = await options.onPayload(params, model);
+        if (modified !== undefined) Object.assign(params, modified);
       }
 
       // TODO: 将 options?.signal 传给 SDK，实现真正的请求取消
       const sdkStream = await client.chat.completions.create(params);
 
-      // debug: 响应信息（OpenAI SDK 的流不直接暴露 HTTP response，这里给基本信息）
-      if (options?.onResponse) {
-        await options.onResponse({ status: 200, headers: {} }, model);
-      }
+      // TODO: onResponse 暂不实现 — OpenAI SDK 流不暴露原始 HTTP response
 
       // 初始 partial 消息
       const initialPartial: AssistantMessage = {
@@ -285,7 +284,7 @@ function openAICompatibleStream(
         api: "openai-completions",
         provider: "openai",
         model: model.id,
-        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        usage: { input: 0, output: 0, totalTokens: 0, cost: { input: 0, output: 0, total: 0 } },
         stopReason: "stop",
         timestamp: Date.now(),
       };
@@ -379,7 +378,10 @@ function openAICompatibleStream(
 
       // 构建最终消息（保留完整 content）
       const finalMsg = buildAssistantMessage(model, config.id, finishReason, usageData, textContent, thinkingContent, completedToolCalls);
-      stream.push({ type: "done", reason: finishReason === "tool_calls" ? "toolUse" : "stop", message: finalMsg });
+      const reason = finishReason === "tool_calls" ? "toolUse"
+        : finishReason === "length" ? "length"
+        : "stop";
+      stream.push({ type: "done", reason, message: finalMsg });
     } catch (error: any) {
       stream.push({
         type: "error",
@@ -423,14 +425,10 @@ function buildAssistantMessage(
     usage: {
       input: usageData.input,
       output: usageData.output,
-      cacheRead: 0,
-      cacheWrite: 0,
       totalTokens: usageData.input + usageData.output,
       cost: {
         input: inputCost,
         output: outputCost,
-        cacheRead: 0,
-        cacheWrite: 0,
         total: inputCost + outputCost,
       },
     },
@@ -447,7 +445,7 @@ function createErrorAssistantMessage(model: Model<any>, errorMessage: string): A
     api: model.api,
     provider: model.provider,
     model: model.id,
-    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    usage: { input: 0, output: 0, totalTokens: 0, cost: { input: 0, output: 0, total: 0 } },
     stopReason: "error",
     errorMessage,
     timestamp: Date.now(),

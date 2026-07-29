@@ -2,7 +2,7 @@
  * transformMessages 的单元测试。
  */
 import { describe, it, expect } from "vitest";
-import { transformMessages } from "../api/transform-messages.js";
+import { transformMessages } from "../utils/transform-messages.js";
 import type { Model, Message } from "../types.js";
 
 const visionModel: Model<"openai-completions"> = {
@@ -13,7 +13,7 @@ const visionModel: Model<"openai-completions"> = {
   baseUrl: "",
   reasoning: false,
   input: ["text", "image"],
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  cost: { input: 0, output: 0 },
   contextWindow: 1000,
   maxTokens: 100,
 };

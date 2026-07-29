@@ -17,7 +17,7 @@ const model: Model<"anthropic-messages"> = {
   baseUrl: "https://api.anthropic.com",
   reasoning: true,
   input: ["text", "image"],
-  cost: { input: 3.0, output: 15.0, cacheRead: 0.30, cacheWrite: 3.75 },
+  cost: { input: 3.0, output: 15.0 },
   contextWindow: 200000,
   maxTokens: 8192,
 };

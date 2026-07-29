@@ -88,14 +88,10 @@ export type StopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
 export interface Usage {
   input: number;
   output: number;
-  cacheRead: number;
-  cacheWrite: number;
   totalTokens: number;
   cost: {
     input: number;
     output: number;
-    cacheRead: number;
-    cacheWrite: number;
     total: number;
   };
 }
@@ -104,8 +100,6 @@ export interface Usage {
 export interface ModelCost {
   input: number;
   output: number;
-  cacheRead: number;
-  cacheWrite: number;
 }
 
 // ── 模型 ──

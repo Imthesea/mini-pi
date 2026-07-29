@@ -17,7 +17,7 @@ function mockProvider(): Provider<Api> {
     baseUrl: "https://mock.example.com",
     reasoning: false,
     input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    cost: { input: 0, output: 0 },
     contextWindow: 1000,
     maxTokens: 100,
   }];
@@ -41,7 +41,7 @@ function mockProvider(): Provider<Api> {
             api: "anthropic-messages",
             provider: "mock",
             model: model.id,
-            usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            usage: { input: 10, output: 5, totalTokens: 15, cost: { input: 0, output: 0, total: 0 } },
             stopReason: "stop",
             timestamp: Date.now(),
           },
@@ -128,7 +128,7 @@ describe("Models", () => {
       baseUrl: "",
       reasoning: false,
       input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      cost: { input: 0, output: 0 },
       contextWindow: 0,
       maxTokens: 0,
     };
