@@ -118,48 +118,44 @@ pi 的 AI 层有四个核心概念，这是我们要保留和简化的：
 ### 2.7 目录结构
 
 ```
-my-mimipi/
-  package.json              # root: workspaces monorepo
-  tsconfig.base.json        # 共享 tsconfig
-  pnpm-workspace.yaml       # workspace 配置
-  README.md
+my-mimipi/                  # ✅ Phase 01 完成
+  package.json              # pnpm workspace monorepo
+  tsconfig.base.json
+  pnpm-workspace.yaml
+  .gitignore
 
-  packages/
-    ai/                     # 第一期：AI 层（就是现在要做的）
-      package.json          # name: "@mimi/ai", type: "module"
-      tsconfig.json
-      src/
-        index.ts            # 公共 API 导出
-        types.ts            # 所有核心类型
-        stream.ts           # EventStream + AssistantMessageEventStream (从 pi 原样保留)
-        provider.ts         # Provider 接口 + Models 集合 + createModels
-        auth.ts             # envApiKey() — 3 行，整个认证模块
-        utils/
-          retry.ts          # isRetryableAssistantError (简化版)
-          error-body.ts     # normalizeProviderError (简化版)
-          json-parse.ts     # parseStreamingJson (工具参数流式解析)
-          text.ts           # contentText 辅助函数
-        api/
-          anthropic.ts      # Anthropic Messages API + anthropicProvider()
-          openai.ts         # OpenAI Completions API + openaiProvider() + deepseekProvider()
-          transform-messages.ts
-      examples/
-        01-core-types.ts    # Phase 1: 创建类型、使用 EventStream
-        02-auth-and-models.ts
-        03-anthropic-chat.ts
-        04-openai-chat.ts
-        05-deepseek-chat.ts
-        06-tool-use.ts
-        07-multi-turn.ts
+  packages/ai/              # @mimi/ai（第一期已完成）
+    package.json
+    tsconfig.json
+    vitest.config.ts
+    .env.example
+    src/
+      index.ts
+      types.ts
+      auth/index.ts         # envApiKey() + dotenv
+      provider/index.ts     # Provider 接口 + ModelsImpl + createModels()
+      stream/index.ts       # EventStream + AssistantMessageEventStream
+      api/
+        openai.ts           # OpenAI + DeepSeek（真实 API ✅）
+        anthropic.ts        # Anthropic（mock，待真实 Key）
+        transform-messages.ts
+      utils/text.ts, retry.ts, error-body.ts, json-parse.ts
+      __tests/              # 5 文件, 29 tests ✅
+    examples/
+      01-core-types.ts      ✅
+      02-auth-and-models.ts ⚠️ OpenAI 需代理
+      03-deepseek-chat.ts   ✅
+      06-tool-use.ts        ✅
+      07-multi-turn.ts      ✅
 
-    agent/                  # 第二期：Agent 运行时（后面再做）
-    coding-agent/           # 第三期：CLI + TUI（后面再做）
+    agent/                  # 第二期（后面再做）
+    coding-agent/           # 第三期（后面再做）
 
-  docs/                     # 📝 项目级文档
-    superpowers/
-      specs/                # 组件级详细设计
-      plans/                # TDD 任务拆解
-    project-log/            # 实施日志
+  docs/
+    my-minipi-spec.md
+    superpowers/specs/2026-07-29-phase01-ai-core-design.md
+    superpowers/plans/2026-07-29-phase01-ai-core-plan.md
+    project-log/phase-01-ai-core/log.md
 ```
 
 ### 2.8 依赖
@@ -223,85 +219,80 @@ Phase 6: DeepSeek API 实现         (需 DEEPSEEK_API_KEY)
 Phase 7: 集成验证 + 样例           (端到端)
 ```
 
-### 4.2 Phase 1：项目脚手架 + 核心类型
+### 4.2 Phase 1：项目脚手架 + 核心类型 ✅
 
 **目标**：初始化 TypeScript 项目，定义所有核心类型
 
-**新建文件**：`package.json`, `tsconfig.json`, `src/types.ts`
+**实际产出**：`package.json`, `tsconfig.json`, `pnpm-workspace.yaml`, `src/types.ts`
 
 **交付标准 (DoD)**：
-- [ ] `package.json` + `tsconfig.json` 配置完成，`tsc --noEmit` 通过
-- [ ] `types.ts` 定义完成：Model, Context, Message, Tool, AssistantMessage, StreamOptions, 事件类型
-- [ ] 样例 `examples/01-core-types.ts`：创建 Model 对象、构建 Context、验类型
+- [x] `package.json` + `tsconfig.json` 配置完成，`tsc --noEmit` 通过
+- [x] `types.ts` 定义完成：Model, Context, Message, Tool, AssistantMessage, StreamOptions, 事件类型
+- [x] 样例 `examples/01-core-types.ts`：创建 Model 对象、构建 Context、验类型
 
-### 4.3 Phase 2：事件流
+### 4.3 Phase 2：事件流 ✅
 
 **目标**：实现 EventStream 类，支持推送事件和异步迭代
 
-**新建文件**：`src/stream.ts`
+**实际产出**：`src/stream/index.ts`, `src/__tests__/stream.test.ts`（5 tests）
 
 **交付标准 (DoD)**：
-- [ ] `EventStream<T, R>` 泛型类实现（从 pi 原样复制）
-- [ ] `AssistantMessageEventStream` 实现
-- [ ] 样例：创建流 → push 事件 → for await 消费 → `.result()` 拿到最终结果
+- [x] `EventStream<T, R>` 泛型类实现（从 pi 原样复制）
+- [x] `AssistantMessageEventStream` 实现
+- [x] vitest 测试覆盖 push/iterate/result/end 全路径
 
-### 4.4 Phase 3：Provider/Models 框架
+### 4.4 Phase 3：Provider/Models 框架 ✅
 
 **目标**：实现 Provider 接口、Models 集合
 
-**新建文件**：`src/auth.ts`, `src/provider.ts`, `src/index.ts`
+**实际产出**：`src/auth/index.ts`, `src/provider/index.ts`, `src/index.ts`（模块目录化）
 
 **交付标准 (DoD)**：
-- [ ] `auth.ts`：`envApiKey()` 单函数
-- [ ] `provider.ts`：Provider 接口 + ModelsImpl + createModels()
-- [ ] `index.ts`：公共 API 导出
-- [ ] 样例 `examples/02-auth-and-models.ts`：注册 mock Provider、查找模型、验证 auth 流程
+- [x] `auth/index.ts`：`envApiKey()` + dotenv 自动加载
+- [x] `provider/index.ts`：Provider 接口 + ModelsImpl + createModels()
+- [x] `index.ts`：公共 API 导出
+- [x] 样例 `examples/02-auth-and-models.ts`：注册真实 openaiProvider、查模型、流式调用
 
-### 4.5 Phase 4：Anthropic API 实现
+### 4.5 Phase 4+5：Anthropic + OpenAI API ✅
 
-**目标**：实现 Anthropic Messages API 的流式调用
+**目标**：Anthropic（mock）+ OpenAI（真实 API 需代理）
 
-**新建文件**：`src/api/transform-messages.ts`, `src/api/anthropic.ts`, `src/utils/text.ts`
-
-**交付标准 (DoD)**：
-- [ ] `api/anthropic.ts`：anthropicProvider() + stream 实现
-- [ ] 消息格式转换（统一 Message → Anthropic MessageParam）
-- [ ] 工具格式转换（TypeBox Schema → Anthropic Tool）
-- [ ] 流式事件映射（Anthropic SDK 事件 → AssistantMessageEvent）
-- [ ] 样例 `examples/03-anthropic-chat.ts`：`ANTHROPIC_API_KEY=xxx npx tsx ...` → 流式输出
-
-### 4.6 Phase 5：OpenAI API 实现
-
-**目标**：实现 OpenAI Chat Completions API
-
-**新建文件**：`src/api/openai.ts`, `src/utils/json-parse.ts`
+**实际产出**：
+- Anthropic：`src/api/anthropic.ts` — mock 实现（等真实 Key）
+- OpenAI：`src/api/openai.ts` — openaiProvider() + 消息转换 + 流式事件映射
+- 共用：`src/api/transform-messages.ts`, `src/utils/text.ts`
 
 **交付标准 (DoD)**：
-- [ ] `api/openai.ts`：openaiProvider() + stream 实现
-- [ ] 消息格式转换（统一 Message → OpenAI ChatCompletionMessageParam）
-- [ ] 样例 `examples/04-openai-chat.ts`：`OPENAI_API_KEY=xxx npx tsx ...` → 流式输出
+- [x] `api/anthropic.ts`：mock 实现，无 Key 时可验证框架
+- [x] `api/openai.ts`：openaiProvider() + stream 实现（代码就绪，需代理验证）
+- [x] 消息/工具格式转换、流式事件映射
+- [x] 样例 `examples/02` 改用真实 openaiProvider（⚠️ 需代理）
 
-### 4.7 Phase 6：DeepSeek API 实现
+### 4.6 Phase 6：DeepSeek API 实现 ✅
 
-**目标**：DeepSeek 复用 OpenAI 实现，只改 baseUrl 和 env var
+**目标**：DeepSeek 复用 OpenAI 实现，真实 API 验证通过
 
-**修改文件**：`src/api/openai.ts`（新增 deepseekProvider()）
-
-**交付标准 (DoD)**：
-- [ ] `deepseekProvider()` 导出，baseUrl 指向 `https://api.deepseek.com`
-- [ ] 样例 `examples/05-deepseek-chat.ts`：`DEEPSEEK_API_KEY=xxx npx tsx ...` → 流式输出
-
-### 4.8 Phase 7：集成验证
-
-**目标**：端到端验证，三种 Provider + 工具调用 + 多轮对话
-
-**新建文件**：`examples/06-tool-use.ts`, `examples/07-multi-turn.ts`, `src/utils/retry.ts`, `src/utils/error-body.ts`
+**实际产出**：`src/api/openai.ts`（新增 `deepseekProvider()`）, `src/utils/json-parse.ts`
 
 **交付标准 (DoD)**：
-- [ ] `06-tool-use.ts`：定义天气查询 Tool → 流式调用 → 模型返回 toolCall → 验证参数正确
-- [ ] `07-multi-turn.ts`：用户消息 → 模型回复 → 工具结果 → 继续对话 → 最终回复
-- [ ] 错误处理完善：未设置 API Key 时给出清晰提示，网络错误可重试
-- [ ] 所有示例 `npx tsx` 直接运行，无交互式认证
+- [x] `deepseekProvider()` 导出，baseUrl 指向 `https://api.deepseek.com`
+- [x] reasoning 格式使用 DeepSeek style（`thinking: { type }`）
+- [x] 样例 `examples/03-deepseek-chat.ts`：流式输出 ✅
+- [x] 样例 `examples/06-tool-use.ts`：工具调用 ✅
+- [x] 样例 `examples/07-multi-turn.ts`：多轮对话 ✅
+
+### 4.7 Phase 7：错误处理 + 集成验证 ✅
+
+**目标**：错误分类、工具调用、多轮对话，端到端验证
+
+**实际产出**：`src/utils/retry.ts`（10 tests）, `src/utils/error-body.ts`
+
+**交付标准 (DoD)**：
+- [x] `06-tool-use.ts`：DeepSeek 真实 API，模型正确调用 `get_weather({"city":"北京"})`
+- [x] `07-multi-turn.ts`：用户消息 → 工具调用 → 结果注入 → 最终回答 ✅
+- [x] 修复：消息转换支持 `reasoning_content` 回传（DeepSeek 要求）
+- [x] 错误处理：未设 Key 清晰提示，错误分类正确
+- [x] `tsc --noEmit` 零错误，`vitest run` 29 passed
 
 ---
 
@@ -372,12 +363,17 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 
 | 文件 | 作用 |
 |------|------|
+> **当前状态: Phase 01 完成 ✅** — 29 tests passed, DeepSeek 真实验证通过
+> 详见 `docs/project-log/phase-01-ai-core/log.md`
+
+| 文件 | 作用 |
+|------|------|
 | `packages/ai/src/types.ts` | 核心类型定义 |
-| `packages/ai/src/models.ts` | Provider/Models/CreateProvider |
-| `packages/ai/src/utils/event-stream.ts` | EventStream 实现 |
-| `packages/ai/src/auth/helpers.ts` | envApiKeyAuth |
-| `packages/ai/src/providers/anthropic.ts` | Anthropic Provider 工厂 |
-| `packages/ai/src/api/anthropic-messages.ts` | Anthropic API 实现 |
+| `packages/ai/src/provider/index.ts` | Provider/Models/CreateModels |
+| `packages/ai/src/stream/index.ts` | EventStream 实现（从 pi 原样） |
+| `packages/ai/src/auth/index.ts` | envApiKey + dotenv |
+| `packages/ai/src/api/openai.ts` | OpenAI + DeepSeek Provider |
+| `packages/ai/src/api/anthropic.ts` | Anthropic Provider（mock） |
 
 ### 6.2 参考文档
 

@@ -94,10 +94,13 @@ function convertMessages(messages: Context["messages"]): ChatCompletionMessagePa
       const toolCalls = msg.content.filter((c) => c.type === "toolCall");
 
       const text = textParts.map((t) => (t as any).text).join("");
+      // DeepSeek 要求：有 thinking 内容时必须传回 reasoning_content
+      const reasoningContent = thinkingParts.map((t) => (t as any).thinking).join("");
 
-      result.push({
+      const messageObj: any = {
         role: "assistant",
         content: text || null,
+        ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
         ...(toolCalls.length > 0
           ? {
               tool_calls: toolCalls.map((tc) => {
@@ -113,7 +116,9 @@ function convertMessages(messages: Context["messages"]): ChatCompletionMessagePa
               }),
             }
           : {}),
-      });
+      };
+
+      result.push(messageObj);
     } else if (msg.role === "toolResult") {
       // OpenAI: tool_result 使用独立的 role: "tool"
       const text = msg.content
@@ -287,7 +292,8 @@ function openAICompatibleStream(
       stream.push({ type: "start", partial: { ...initialPartial } });
 
       // 跟踪当前正在构建的 content
-      let contentIndex = 0;
+      let textContent = "";
+      let thinkingContent = "";
       let currentToolCalls: Map<number, { id: string; name: string; arguments: string }> = new Map();
       let finishReason: string | null = null;
       let usageData: { input: number; output: number } = { input: 0, output: 0 };
@@ -304,17 +310,14 @@ function openAICompatibleStream(
 
         // 文本内容
         if (delta.content) {
-          // 简化处理：文本直接按单个 content block 处理
-          if (contentIndex === 0) {
-            stream.push({ type: "text_start", contentIndex: 0, partial: { ...initialPartial } });
-          }
+          textContent += delta.content;
           stream.push({ type: "text_delta", contentIndex: 0, delta: delta.content, partial: { ...initialPartial } });
         }
 
-        // 思考内容（OpenAI 的 reasoning_content）
+        // 思考内容（OpenAI 的 reasoning_content / DeepSeek 的 thinking）
         if ((delta as any).reasoning_content) {
-          stream.push({ type: "thinking_start", contentIndex: 1, partial: { ...initialPartial } });
-          stream.push({ type: "thinking_delta", contentIndex: 1, delta: (delta as any).reasoning_content, partial: { ...initialPartial } });
+          thinkingContent += (delta as any).reasoning_content;
+          stream.push({ type: "thinking_delta", contentIndex: 0, delta: (delta as any).reasoning_content, partial: { ...initialPartial } });
         }
 
         // 工具调用
@@ -345,11 +348,17 @@ function openAICompatibleStream(
       }
 
       // 结束文本块
-      if (finishReason) {
-        stream.push({ type: "text_end", contentIndex: 0, content: "", partial: { ...initialPartial } });
+      if (textContent) {
+        stream.push({ type: "text_end", contentIndex: 0, content: textContent, partial: { ...initialPartial } });
       }
 
-      // 结束工具调用块
+      // 结束思考块
+      if (thinkingContent) {
+        stream.push({ type: "thinking_end", contentIndex: 0, content: thinkingContent, partial: { ...initialPartial } });
+      }
+
+      // 收集完成的工具调用
+      const completedToolCalls: Array<{ type: "toolCall"; id: string; name: string; arguments: Record<string, any> }> = [];
       for (const [index, tc] of currentToolCalls) {
         let args = {};
         try {
@@ -357,16 +366,17 @@ function openAICompatibleStream(
         } catch {
           args = {};
         }
+        completedToolCalls.push({ type: "toolCall", id: tc.id, name: tc.name, arguments: args });
         stream.push({
           type: "toolcall_end",
-          contentIndex: index + 2,
+          contentIndex: index,
           toolCall: { type: "toolCall", id: tc.id, name: tc.name, arguments: args },
           partial: { ...initialPartial },
         });
       }
 
-      // 构建最终消息
-      const finalMsg = buildAssistantMessage(model, finishReason, usageData);
+      // 构建最终消息（保留完整 content）
+      const finalMsg = buildAssistantMessage(model, config.id, finishReason, usageData, textContent, thinkingContent, completedToolCalls);
       stream.push({ type: "done", reason: finishReason === "tool_calls" ? "toolUse" : "stop", message: finalMsg });
     } catch (error: any) {
       stream.push({
@@ -380,20 +390,33 @@ function openAICompatibleStream(
   return stream;
 }
 
-/** 构建最终的 AssistantMessage */
+/** 构建最终的 AssistantMessage（包含流式过程中收集的完整内容） */
 function buildAssistantMessage(
   model: Model<"openai-completions">,
+  providerId: string,
   finishReason: string | null,
   usageData: { input: number; output: number },
+  textContent: string,
+  thinkingContent: string,
+  toolCalls: Array<{ type: "toolCall"; id: string; name: string; arguments: Record<string, any> }>,
 ): AssistantMessage {
   const inputCost = (model.cost.input / 1_000_000) * usageData.input;
   const outputCost = (model.cost.output / 1_000_000) * usageData.output;
 
+  const content: AssistantMessage["content"] = [];
+  if (thinkingContent) {
+    content.push({ type: "thinking", thinking: thinkingContent });
+  }
+  if (textContent) {
+    content.push({ type: "text", text: textContent });
+  }
+  content.push(...toolCalls);
+
   return {
     role: "assistant",
-    content: [],
+    content,
     api: "openai-completions",
-    provider: "openai",
+    provider: providerId,
     model: model.id,
     usage: {
       input: usageData.input,
