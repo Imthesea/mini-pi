@@ -56,3 +56,42 @@ export {
   runAgentLoop,
   type AgentEventSink,
 } from "./agent-loop.js";
+
+// ── Harness 公共 API(Task 3 新增) ──
+export {
+  AgentHarness,
+  isAgentHarness,
+  type Subscription,
+  // Phase
+  type AgentHarnessPhase,
+  PHASE_TRANSITIONS,
+  canTransition,
+  assertPhase,
+  // 错误
+  AgentHarnessError,
+  PhaseError,
+  HarnessConfigError,
+  // 消息工具
+  convertToLlm,
+  buildAssistantMessage,
+  getDefaultCustomProjector,
+  mapCustomToUserMessages,
+  type CustomProjector,
+  // System Prompt
+  buildSystemPrompt,
+  formatSkillsBlock,
+  joinParts,
+  type SystemPromptInput,
+  // 类型
+  type Skill,
+  type PromptTemplate,
+  type HookEvent,
+  type HookHandler,
+  type HookObserver,
+  type AgentHarnessEvent,
+  type AgentHarnessOptions,
+  AgentHarnessResources,
+  AgentHarnessStreamOptions,
+  type SystemPromptContext,
+  type HarnessStreamFn,
+} from "./harness/index.js";

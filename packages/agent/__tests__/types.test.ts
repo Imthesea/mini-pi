@@ -214,7 +214,13 @@ describe("AgentToolResult + AgentToolUpdateCallback", () => {
       content: [{ type: "text", text: "done" }],
       details: { ok: true },
     };
-    expect(r.content[0].text).toBe("done");
+    // 显式 if 收窄(用 ?.: 在三元里 TS 不能把 ImageContent 排除)
+    const first = r.content[0];
+    if (first.type === "text") {
+      expect(first.text).toBe("done");
+    } else {
+      throw new Error("expected text content");
+    }
     expect(r.details.ok).toBe(true);
   });
 
@@ -258,6 +264,7 @@ describe("Before/After Tool Call Result", () => {
       content: [{ type: "text", text: "patched" }],
       isError: false,
     };
-    expect(r.content[0].text).toBe("patched");
+    const first = r.content?.[0];
+    expect(first?.type === "text" ? first.text : "").toBe("patched");
   });
 });

@@ -26,9 +26,9 @@ import {
   type AssistantMessageEvent,
   type Context,
   type Model,
-  type StreamFn,
   type ToolCall,
 } from "@mimi/ai";
+import type { StreamFn } from "../../src/types.js";
 
 // ── 剧本类型 ──
 
@@ -220,9 +220,11 @@ export function makeEchoTool() {
       properties: { text: { type: "string" } },
       required: ["text"],
     } as any,
-    execute: async (_id: string, params: { text: string }) => {
+    // params 写成 any 以兼容 AgentTool 的 execute 签名(契约是 Static<TParameters> = unknown)
+    execute: async (_id: string, params: any) => {
+      const text = (params as { text: string }).text;
       return {
-        content: [{ type: "text" as const, text: `echo: ${params.text}` }],
+        content: [{ type: "text" as const, text: `echo: ${text}` }],
         details: { ok: true },
       };
     },

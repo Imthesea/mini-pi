@@ -1,18 +1,19 @@
 /**
- * Example 01: agent-loop 基础用法
+ * Example 01: AgentHarness 基础用法
  *
- * 演示：
- * - 用 mock streamFn 启动 runAgentLoop
- * - 注册一个工具(echo)
- * - 订阅事件(逐个打印)
- * - 验证:agent_start → turn_start → message_start/update/end → tool_execution_* → message_start/end → agent_end
+ * 演示:
+ * - 用 mock streamFn 启动 AgentHarness
+ * - 订阅 harness 事件(逐个打印)
+ * - 调用 harness.prompt() 启动一个 turn
+ * - 验证:看到 agent_start → turn_start → message_* → tool_execution_* → agent_end
  *
  * 运行: cd packages/agent && npx tsx examples/01-basic.ts
  */
 
 import { Type } from "typebox";
-import { runAgentLoop, type AgentEvent, type AgentMessage, type AgentTool } from "../src/index.js";
-import { AssistantMessageEventStream, type AssistantMessage, type Model, type StreamFn } from "@mimi/ai";
+import { AgentHarness } from "../src/harness/index.js";
+import { AssistantMessageEventStream, type AssistantMessage, type Model } from "@mimi/ai";
+import type { AgentEvent, AgentHarnessEvent, AgentMessage, AgentTool } from "../src/index.js";
 
 // ── Mock model + streamFn ──
 
@@ -31,23 +32,21 @@ const mockModel: Model<any> = {
 
 /**
  * 剧本式 mock stream:第一轮返回 1 个 toolCall,第二轮返回文本。
- * 行为与 __tests__/_helpers/mock-provider.ts 等价,放在 example 内方便独立运行。
  */
 function createScriptedStreamFn(
   responses: Array<
     | { kind: "text"; text: string }
     | { kind: "toolCalls"; toolCalls: Array<{ id: string; name: string; arguments: any }>; text?: string }
   >,
-): StreamFn {
+) {
   let cursor = 0;
   let callCount = 0;
-  return (model, _context) => {
+  return (model: Model<any>, _context: any) => {
     callCount++;
     const response = responses[cursor++];
     const stream = new AssistantMessageEventStream();
 
     if (!response) {
-      // 剧本耗尽:返回错误
       const err: AssistantMessage = {
         role: "assistant",
         content: [],
@@ -66,7 +65,6 @@ function createScriptedStreamFn(
       return stream;
     }
 
-    // 构造 partial
     const partial: AssistantMessage = {
       role: "assistant",
       content: [],
@@ -82,12 +80,7 @@ function createScriptedStreamFn(
     if (response.kind === "toolCalls") {
       if (response.text) content.push({ type: "text", text: response.text });
       for (const tc of response.toolCalls) {
-        content.push({
-          type: "toolCall",
-          id: tc.id,
-          name: tc.name,
-          arguments: tc.arguments,
-        });
+        content.push({ type: "toolCall", id: tc.id, name: tc.name, arguments: tc.arguments });
       }
     } else {
       content.push({ type: "text", text: response.text });
@@ -137,7 +130,7 @@ const echoTool: AgentTool = {
 // ── 主流程 ──
 
 async function main() {
-  console.log("=== Example 01: agent-loop 基础流程 ===\n");
+  console.log("=== Example 01: AgentHarness 基础流程 ===\n");
 
   const streamFn = createScriptedStreamFn([
     {
@@ -148,18 +141,35 @@ async function main() {
     { kind: "text", text: "工具返回了 echo: hello,任务完成。" },
   ]);
 
-  // 收集事件用于展示
+  // 构造 AgentHarness
+  const harness = new AgentHarness({
+    model: mockModel,
+    tools: [echoTool],
+    env: { readFile: async () => ({ ok: true, value: "" }) } as any,
+    session: { id: "demo-session" } as any,
+    systemPrompt: "你是一个有用的助手",
+    streamFn: streamFn as any,
+  });
+
+  // 订阅事件
   const eventLog: string[] = [];
-  const messages = await runAgentLoop(
-    [{ role: "user", content: "请 echo 'hello'", timestamp: Date.now() }],
-    { systemPrompt: "你是一个有用的助手", messages: [], tools: [echoTool] },
-    { model: mockModel, convertToLlm: (msgs) => msgs, streamFn },
-    async (event: AgentEvent) => {
+  const subscription = harness.subscribe();
+
+  (async () => {
+    for await (const event of subscription) {
       const tag = eventTypeLabel(event);
       eventLog.push(tag);
       console.log(`  📡 ${tag}`);
-    },
-  );
+    }
+  })();
+
+  // 启动一个 turn
+  console.log("\n--- 启动 harness.prompt() ---\n");
+  const messages = await harness.prompt("请 echo 'hello'");
+
+  // 等订阅拿到所有事件
+  await new Promise((r) => setTimeout(r, 20));
+  subscription.cancel();
 
   console.log("\n=== 事件流总览 ===");
   console.log(`共 ${eventLog.length} 个事件:`);
@@ -184,26 +194,34 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("\n✅ 流程完整,关键事件齐全");
+  // 验证:phase 回到 idle
+  if (harness.getPhase() !== "idle") {
+    console.error(`\n❌ phase 未回到 idle: ${harness.getPhase()}`);
+    process.exit(1);
+  }
+
+  console.log("\n✅ 流程完整,关键事件齐全,phase 已回 idle");
 }
 
-function eventTypeLabel(event: AgentEvent): string {
-  switch (event.type) {
+function eventTypeLabel(event: AgentHarnessEvent): string {
+  // AgentHarnessEvent 当前等价于 AgentEvent
+  const e = event as AgentEvent;
+  switch (e.type) {
     case "agent_start":
     case "agent_end":
     case "turn_start":
     case "turn_end":
     case "message_start":
     case "message_end":
-      return event.type;
+      return e.type;
     case "message_update":
-      return `message_update(${event.assistantMessageEvent.type})`;
+      return `message_update(${e.assistantMessageEvent.type})`;
     case "tool_execution_start":
-      return `tool_execution_start(${event.toolName})`;
+      return `tool_execution_start(${e.toolName})`;
     case "tool_execution_update":
-      return `tool_execution_update(${event.toolName})`;
+      return `tool_execution_update(${e.toolName})`;
     case "tool_execution_end":
-      return `tool_execution_end(${event.toolName}, isError=${event.isError})`;
+      return `tool_execution_end(${e.toolName}, isError=${e.isError})`;
   }
 }
 
@@ -213,7 +231,9 @@ function describeMessage(m: AgentMessage): string {
     return `assistant: ${m.content.map((c) => (c.type === "text" ? c.text : c.type === "toolCall" ? `[toolCall:${c.name}]` : `[${c.type}]`)).join(" | ")}`;
   }
   if (m.role === "toolResult") {
-    return `toolResult: ${m.toolName} isError=${m.isError} → ${m.content[0]?.text ?? ""}`;
+    const first = m.content[0];
+    const text = first?.type === "text" ? first.text : "";
+    return `toolResult: ${m.toolName} isError=${m.isError} → ${text}`;
   }
   return `[${(m as any).role}]`;
 }

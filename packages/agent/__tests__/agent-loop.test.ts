@@ -78,9 +78,12 @@ describe("agent-loop: 基础流程", () => {
     expect(messages).toHaveLength(4);
     expect(messages[0].role).toBe("user");
     expect(messages[1].role).toBe("assistant");
-    expect(messages[2].role).toBe("toolResult");
-    expect(messages[2].toolCallId).toBe("call_1");
-    expect(messages[2].toolName).toBe("echo");
+    const toolResultMsg = messages[2];
+    expect(toolResultMsg.role).toBe("toolResult");
+    if (toolResultMsg.role === "toolResult") {
+      expect(toolResultMsg.toolCallId).toBe("call_1");
+      expect(toolResultMsg.toolName).toBe("echo");
+    }
     expect(messages[3].role).toBe("assistant");
   });
 
@@ -295,9 +298,10 @@ describe("agent-loop: 协议与钩子", () => {
   });
 
   it("afterToolCall: 增量覆盖 content / isError 字段", async () => {
+    // as const 保留 type: "text" 字面量(否则 vi.fn 返回类型推断会把字面量拓宽成 string)
     const afterSpy = vi.fn(async () => ({
-      content: [{ type: "text", text: "patched" }],
-      isError: false,
+      content: [{ type: "text" as const, text: "patched" }],
+      isError: false as const,
     }));
 
     const { streamFn } = createMockStreamFn([
