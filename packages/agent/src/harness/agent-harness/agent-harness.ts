@@ -8,12 +8,26 @@
  * 4. 提供 abort 能力
  * 5. 配置管理(getXxx / setXxx)
  * 6. 业务入口(prompt)
+ * 7. 钩子系统集成(emit 8 个核心事件:见 hooks-bridge.ts)
  *
  * 设计说明:
  * - 字段用 # 私有修饰符,严格封装
  * - 内部方法用 _ 前缀(约定,非强制),供同模块测试调用
  * - 后续 Task 增量(skill / compact / steer 等)直接在本文件加方法
- * - 拆分出去的文件:event-bus.ts(事件总线)、helpers.ts(纯函数辅助)
+ * - 拆分出去的文件:event-bus.ts(事件总线)、helpers.ts(纯函数辅助)、
+ *   hooks-bridge.ts(钩子 ↔ agent-loop 桥接)
+ *
+ * 钩子事件 emit 位置:
+ * | 事件                | emit 位置                                |
+ * |---------------------|------------------------------------------|
+ * | before_agent_start  | prompt() 入口                            |
+ * | context             | executeTurn() 调 runAgentLoop 前         |
+ * | tool_call           | bridgeBeforeToolCall(通过 AgentLoopConfig.beforeToolCall) |
+ * | tool_result         | bridgeAfterToolCall(通过 AgentLoopConfig.afterToolCall)  |
+ * | message_end         | runAgentLoop emit sink(message_end 时)   |
+ * | model_update        | setModel() 末尾                          |
+ * | abort               | abort() 末尾                             |
+ * | session_before_compact | (Task 6 接入,本 Task 不 emit)         |
  */
 
 import type { Model } from "@mimi/ai";
@@ -36,9 +50,15 @@ import type {
   AgentHarnessResources,
   AgentHarnessStreamOptions,
 } from "../types/options.js";
+import { DefaultAgentHarnessHooks } from "../hooks/index.js";
+import type {
+  AgentHarnessHookContext,
+  BeforeAgentStartHookEvent,
+} from "../hooks/index.js";
 import { EventBus } from "./event-bus.js";
 import type { Subscription } from "./event-bus.js";
 import { buildUserContent, extractSessionId } from "./helpers.js";
+import { bridgeAfterToolCall, bridgeBeforeToolCall } from "./hooks-bridge.js";
 
 // ── AgentHarness 主类 ──
 
@@ -70,6 +90,15 @@ export class AgentHarness {
   /** 内部事件总线 */
   readonly #eventBus: EventBus = new EventBus();
 
+  /**
+   * 钩子系统实例。
+   *
+   * 持有 observe / on / emit 全部能力。
+   * 在 prompt() / abort() / setModel() 等关键点 emit 8 个核心事件。
+   * tool_call / tool_result 通过 hooks-bridge.ts 桥接到 AgentLoopConfig。
+   */
+  readonly #hooks: DefaultAgentHarnessHooks;
+
   /** 当前 turn 的 AbortController(turn 开始时新建,结束时清空) */
   #currentAbortController: AbortController | null = null;
 
@@ -90,6 +119,37 @@ export class AgentHarness {
       streamOptions: options.streamOptions,
       systemPrompt: options.systemPrompt,
     };
+
+    // 构造钩子系统(用户可注入自定义实现,默认用 DefaultAgentHarnessHooks)
+    this.#hooks =
+      (options.hooks as DefaultAgentHarnessHooks | undefined) ??
+      new DefaultAgentHarnessHooks({
+        context: this.#buildHookContext(),
+      });
+  }
+
+  /** 构造钩子系统需要的 context(由 setContext 同步更新) */
+  #buildHookContext(): AgentHarnessHookContext {
+    return {
+      harness: this,
+      // session facade:Task 5 接入后填充真正的 session 引用
+      // 当前 Task 阶段:传空对象 {} 即可(emit 时不依赖 facade 内部数据)
+      session: this.#options.session ?? {},
+      // models facade:Task 后续接入后填充
+      models: {},
+      // messages:本 Task 阶段为空,Task 5 接入 session 后会从 session.getMessages() 拿
+      messages: [],
+    };
+  }
+
+  /**
+   * 同步钩子 context(在每次 setSession / setModel 后调用,
+   * 让 handler 看到最新状态)。
+   *
+   * 内部方法:Task 5 接入 session 后,会在 prompt 入口调一次同步历史 messages。
+   */
+  _syncHookContext(): void {
+    this.#hooks.setContext(this.#buildHookContext());
   }
 
   /** 校验 options 必填字段,缺失时抛 HarnessConfigError */
@@ -188,6 +248,8 @@ export class AgentHarness {
    * 注意:这里直接把 phase 设回 idle,绕过了 phase.ts 的 canTransition 检查。
    * 这是有意为之 -- abort 是"状态机逃生舱",允许从任意 phase 强制回 idle。
    * 如果不回 idle,一个被中断的 harness 会永远卡在 turn 状态无法使用。
+   *
+   * 同时 emit `abort` 钩子事件(异步 fire-and-forget,不阻塞 abort 本身)。
    */
   abort(): void {
     if (this.#currentAbortController) {
@@ -197,6 +259,8 @@ export class AgentHarness {
     if (this.#phase !== "idle") {
       this.#phase = "idle";
     }
+    // emit abort(不 await,避免阻塞主流程;fire-and-forget 语义)
+    void this.#hooks.emit({ type: "abort" });
   }
 
   // ── 配置:Getters ──
@@ -229,12 +293,28 @@ export class AgentHarness {
     return this.#runtime.systemPrompt;
   }
 
+  /**
+   * 获取钩子系统实例。
+   *
+   * 用法:
+   * ```ts
+   * const hooks = harness.getHooks();
+   * hooks.on("tool_call", (e) => ({ block: true, reason: "禁止" }));
+   * hooks.observe((e) => console.log(e.type));
+   * ```
+   */
+  getHooks(): DefaultAgentHarnessHooks {
+    return this.#hooks;
+  }
+
   // ── 配置:Setters ──
   // disposed 的 harness 调用 setter 抛错,防止误用
 
   setModel(model: Model<any>): void {
     this.#assertNotDisposed();
     this.#runtime.model = model;
+    // emit model_update(fire-and-forget)
+    void this.#hooks.emit({ type: "model_update" });
   }
 
   setTools(tools: AgentTool<any>[]): void {
@@ -282,15 +362,25 @@ export class AgentHarness {
    * 启动一次 LLM turn。
    *
    * 流程:
-   * 1. 断言 phase === "idle",然后切到 "turn"
-   * 2. 构造 user 消息 + system prompt + AgentContext
-   * 3. 调 runAgentLoop,转发事件到订阅者
-   * 4. 无论成功失败,phase 回 idle(try/finally)
+   * 1. emit `before_agent_start` 钩子(handler 可改 messages / systemPrompt)
+   * 2. 断言 phase === "idle",然后切到 "turn"
+   * 3. 构造 user 消息 + system prompt + AgentContext
+   * 4. emit `context` 钩子(handler 可链式改 messages)
+   * 5. 调 runAgentLoop,转发事件到订阅者
+   *    - message_end 事件时同时 emit `message_end` 钩子
+   * 6. 无论成功失败,phase 回 idle(try/finally)
    */
   async prompt(
     text: string,
     options?: { images?: Array<{ data: string; mimeType: string }> },
   ): Promise<AgentMessage[]> {
+    // 0. emit before_agent_start(handler 可改 messages / systemPrompt,fire-and-forget)
+    const startResult = (await this.#hooks.emit({
+      type: "before_agent_start",
+    } satisfies BeforeAgentStartHookEvent)) as
+      | { messages?: AgentMessage[]; systemPrompt?: string }
+      | undefined;
+
     // 1. 断言 phase 是 idle(非 idle 说明上一次 turn 没结束)
     assertPhase(this.getPhase(), "idle", "prompt");
 
@@ -298,17 +388,24 @@ export class AgentHarness {
     this._setPhase("turn");
 
     try {
-      return await this.#executeTurn(text, options);
+      return await this.#executeTurn(text, options, startResult);
     } finally {
       // 3. 不管成功失败,phase 回 idle
       this._setPhase("idle");
     }
   }
 
-  /** 单次 turn 的实际执行(私有) */
+  /**
+   * 单次 turn 的实际执行(私有)。
+   *
+   * @param text              user 输入文本
+   * @param options           可选 images
+   * @param startHookResult   before_agent_start 钩子的返回(可能含 messages / systemPrompt 覆盖)
+   */
   async #executeTurn(
     text: string,
     options?: { images?: Array<{ data: string; mimeType: string }> },
+    startHookResult?: { messages?: AgentMessage[]; systemPrompt?: string },
   ): Promise<AgentMessage[]> {
     const runtime = this.#runtime;
 
@@ -320,27 +417,43 @@ export class AgentHarness {
     };
 
     // 构造 system prompt(静态字符串或动态 provider)
-    const systemPromptResult = buildSystemPrompt(
-      runtime.systemPrompt,
-      {
-        model: runtime.model,
-        tools: runtime.tools,
-        sessionId: extractSessionId(this.#options.session),
-        resources: runtime.resources,
-      },
-    );
+    // 优先用 before_agent_start hook 注入的 systemPrompt,否则用 runtime 默认
+    const baseSystemPrompt =
+      startHookResult?.systemPrompt ?? runtime.systemPrompt;
+    const systemPromptResult = buildSystemPrompt(baseSystemPrompt, {
+      model: runtime.model,
+      tools: runtime.tools,
+      sessionId: extractSessionId(this.#options.session),
+      resources: runtime.resources,
+    });
     const systemPrompt =
       typeof systemPromptResult === "string"
         ? systemPromptResult
         : await systemPromptResult;
 
     // 构造 AgentContext
-    // Task 3 阶段:只用 user 消息;Task 5 接入 session 后从 session 读历史
+    // 初始 messages:用 before_agent_start 注入的,否则用 [userMessage]
+    const initialMessages: AgentMessage[] = startHookResult?.messages ?? [
+      userMessage,
+    ];
+
+    // 构造 AgentContext
     const context: AgentContext = {
       systemPrompt,
-      messages: [userMessage],
+      messages: initialMessages,
       tools: runtime.tools,
     };
+
+    // 同步 hook context(让 context 事件的 handler 看到最新的 harness 状态)
+    this._syncHookContext();
+
+    // emit context 事件(handler 可链式改 messages)
+    const contextResult = (await this.#hooks.emit({ type: "context" })) as
+      | { messages?: AgentMessage[] }
+      | undefined;
+    if (contextResult?.messages !== undefined) {
+      context.messages = contextResult.messages;
+    }
 
     // 构造 AgentLoopConfig
     const config: AgentLoopConfig = {
@@ -348,10 +461,18 @@ export class AgentHarness {
       convertToLlm,
       streamFn: this.#options.streamFn,
       toolExecution: "parallel",
+      // 桥接:tool_call / tool_result 事件走钩子系统
+      beforeToolCall: bridgeBeforeToolCall(this.#hooks),
+      afterToolCall: bridgeAfterToolCall(this.#hooks),
     };
 
     // 调 runAgentLoop,转发事件到 EventBus
-    return await runAgentLoop([userMessage], context, config, async (event) => {
+    // message_end 事件时同时 emit 钩子系统的 message_end
+    return await runAgentLoop(initialMessages, context, config, async (event) => {
+      if (event.type === "message_end") {
+        // fire-and-forget,不阻塞事件转发
+        void this.#hooks.emit({ type: "message_end" });
+      }
       await this.#emit(event);
     });
   }

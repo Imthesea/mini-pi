@@ -57,3 +57,42 @@ export {
   joinParts,
   type SystemPromptInput,
 } from "./system-prompt/index.js";
+
+// ── 钩子系统(Task 4 新增) ──
+//
+// 完整 API 见 ./hooks/index.ts。本文件 re-export 是为用户方便
+// (用户从 @mimi/agent 顶层 import 时不必关心子目录)。
+export {
+  DefaultAgentHarnessHooks,
+  type DefaultAgentHarnessHooksOptions,
+  // 8 核心事件类型
+  type ContextHookEvent,
+  type BeforeAgentStartHookEvent,
+  type ToolCallHookEvent,
+  type ToolResultHookEvent,
+  type MessageEndHookEvent,
+  type SessionBeforeCompactHookEvent,
+  type ModelUpdateHookEvent,
+  type AbortHookEvent,
+  // 9 预声明事件类型
+  type BeforeProviderRequestHookEvent,
+  type BeforeProviderPayloadHookEvent,
+  type AfterProviderResponseHookEvent,
+  type SessionCompactHookEvent,
+  type SessionBeforeTreeHookEvent,
+  type SessionTreeHookEvent,
+  type ThinkingLevelUpdateHookEvent,
+  type ResourcesUpdateHookEvent,
+  type ToolsUpdateHookEvent,
+  type QueueUpdateHookEvent,
+  type SavePointHookEvent,
+  type SettledHookEvent,
+  // 公共联合类型
+  type AgentHarnessHookEvent,
+  type AgentHarnessHookName,
+  type AgentHarnessHookContext,
+  type AgentHarnessHookContextFacade,
+  type ResultOf,
+  type SessionFacade,
+  type ModelFacade,
+} from "./hooks/index.js";
