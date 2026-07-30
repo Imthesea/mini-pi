@@ -414,6 +414,24 @@ export interface AgentLoopConfig {
     signal?: AbortSignal,
   ) => Promise<AfterToolCallResult | undefined>;
 
+  /** 可选: 可重试错误的最大重试次数,默认 2（从 pi 沿用）。 */
+  maxRetries?: number;
+
+  /** 可选: 单次重试的最大退避毫秒,默认 60000（从 pi 沿用）。 */
+  maxRetryDelayMs?: number;
+
   /** 可选: 全局 abort signal */
   signal?: AbortSignal;
+
+  /** 可选: 在每次 LLM 调用前使用的 API key。
+   *  覆盖 StreamOptions.apiKey。用于短生命周期的 OAuth token。
+   */
+  apiKey?: string;
+
+  /** 可选: agent-loop 使用的流函数。
+   *  harness 层通常注入 `models.stream`(来自 @mimi/ai)。
+   *  `runAgentLoop` 接受同名参数,参数优先。
+   *  两者都未提供时,`runAgentLoop` 抛错。
+   */
+  streamFn?: StreamFn;
 }

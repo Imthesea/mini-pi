@@ -4,6 +4,7 @@
 
 > **本文档配套文档**:
 > - 设计 Spec:[2026-07-30-phase02-agent-design.md](../specs/2026-07-30-phase02-agent-design.md)
+> - **工程原则**:**[2026-07-30-phase02-engineering-principles.md](../specs/2026-07-30-phase02-engineering-principles.md)——每个 Task 落地前必读**
 > - 上游 AI Spec:[2026-07-29-phase01-ai-core-design.md](../specs/2026-07-29-phase01-ai-core-design.md)
 > - 下游 CLI Spec:[2026-07-30-phase02.5-coding-agent-design.md](../specs/2026-07-30-phase02.5-coding-agent-design.md)
 
@@ -18,11 +19,28 @@
 - TypeScript 5.9+,`erasableSyntaxOnly`,ES2022 target,Node16 模块
 - **所有注释、文档使用中文**。每个类、每个方法至少要有中文注释说明用途
 - **中文优先**:命名可用英文,但注释、README、错误消息全部中文
-- vitest 用于单元测试,`examples/*.ts` 用于真实 API 集成验证
+- vitest 用于单元测试,`examples/*.ts` 用于 mock provider 集成验证(不依赖真实 API key)
 - 每个 Task 完成后必须:vitest 通过 + 对应 example 可用 `npx tsx` 跑通
-- 严格 TDD:测试先写,跑挂,然后写实现,跑通,再写下一个
+- 严格 TDD:测试先写,跑挂(RED),然后写实现,跑绿(GREEN),再写下一个
+- **mock provider 统一在 `packages/agent/src/__mocks__/mock-provider.ts` 实现**(Task 1 准备,后续 example 复用)
 - 与 AI 层契约:`runAgentLoop` 内部重试,基于 `isRetryableAssistantError`;`buildAssistantMessage` 的 content 顺序 text → thinking → tools(由 AI 层保证)
 - 完整保留 `CustomAgentMessages` 声明合并接口,不引入轻量 `Agent` 类
+
+## 工程约束(软性,500 行软上限,超出需用户确认)
+
+> 详细原则见 [工程原则文档](../specs/2026-07-30-phase02-engineering-principles.md)。**每个 Task 落地前必读**。
+
+- **单文件行数软上限 ≤ 500 行**(用 `wc -l` 检查,含空行和注释)
+- **可以超过 500 行**:为合理性可以超过,但必须走工程原则 § 2.2 的确认流程
+- **拆分优先于合并**:能用"职责"切分就拆,能用"调用方向"切分就拆
+- **避免"为拆而拆"**:对称 / 整齐 / 模板相似不构成拆分理由(见工程原则 § 1.3 反例)
+- **类型就近**:内层类型放内层文件,不堆 `types.ts`
+- **公共 API 入口薄**:只导出符号 + 编排
+- **每写完一个文件立即 `wc -l` 检查**:
+  - < 400 行:OK,继续
+  - 400-500 行:警觉,评估是否还有合理拆分
+  - > 500 行:**停下,走工程原则 § 2.2 确认流程**
+- **本原则不豁免翻译任务**:即使是从 pi 翻译,也要按上述规则评估,不能以"翻译自 pi"为由拒绝拆分
 
 ---
 
@@ -76,44 +94,73 @@ cd packages/agent && pnpm test
 
 ## Task 2: 核心 agent-loop 循环(agent-loop.ts)
 
-**目标**: 实现 LLM → tool → repeat 的核心循环,这是 agent 层的"心脏"。**从 pi 完整保留**,792 行。
+**目标**: 实现 LLM → tool → repeat 的核心循环,这是 agent 层的"心脏"。**从 pi 完整保留功能,但物理拆分**——按工程原则 1.3 拆分判据执行,单文件 ≤ 500 软上限(超过需用户确认)。
 
-**产出文件**:
-- `packages/agent/src/agent-loop.ts`
-- `packages/agent/__tests__/agent-loop.test.ts`
-- `packages/agent/examples/01-basic.ts`
+> **本 Task 工程约束**(详细见 [工程原则 § 4.1](../specs/2026-07-30-phase02-engineering-principles.md)):
+> - 单文件 ≤ 500 行(软上限,超过需用户确认)
+> - 公共 API 入口(`agent-loop.ts`)≤ 300 行,只放编排
+> - 内部实现拆到 `loop/` 子目录
+
+**目录结构**(本 Task 产出):
+```
+packages/agent/src/
+├── agent-loop.ts                          # 公共 API + runLoop 编排 (~200 行)
+├── loop/
+│   ├── stream-assistant.ts                # 流式响应 + 重试包装 (~180 行)
+│   ├── tool-execution.ts                  # 工具执行入口(sequential/parallel 路由) (~120 行)
+│   ├── tool-execution/
+│   │   ├── sequential.ts                  # 串行执行 (~100 行)
+│   │   ├── parallel.ts                    # 并行执行 (~150 行)
+│   │   ├── prepare.ts                     # prepareToolCall(参数校验 + beforeToolCall 钩子) (~120 行)
+│   │   ├── execute.ts                     # executePreparedToolCall(onUpdate 派发) (~90 行)
+│   │   ├── finalize.ts                    # finalizeExecutedToolCall(afterToolCall 钩子) (~90 行)
+│   │   ├── truncate.ts                    # failToolCallsFromTruncatedMessage (~60 行)
+│   │   └── types.ts                       # 内部类型(PreparedToolCall / FinalizedToolCallOutcome 等) (~80 行)
+│   ├── tool-validation.ts                 # TypeBox 参数校验 (~50 行)
+│   └── helpers.ts                         # sleep / createErrorToolResult / createToolResultMessage / emit* (~100 行)
+
+packages/agent/__tests__/
+├── agent-loop.test.ts                     # 12+ cases,按 describe 块拆分 (~400 行)
+
+packages/agent/examples/
+└── 01-basic.ts                            # 用 mock provider 跑通 (~150 行)
+```
+
+**最大单文件**:180 行 ✓
 
 **关键 API**:
-- `runAgentLoop(config: AgentLoopConfig): Promise<AgentMessage[]>`:完整 LLM turn,直到 turn 自然结束
-- `runAgentLoopContinue(config: AgentLoopConfig, messages: AgentMessage[]): Promise<AgentMessage[]>`:续接已有 messages
+- `agentLoop(prompts, context, config, signal?, streamFn?): EventStream<AgentEvent, AgentMessage[]>`:EventStream 风格入口
+- `agentLoopContinue(context, config, signal?, streamFn?): EventStream<AgentEvent, AgentMessage[]>`:续接
+- `runAgentLoop(prompts, context, config, emit?, signal?, streamFn?): Promise<AgentMessage[]>`:Promise 风格
+- `runAgentLoopContinue(context, config, emit?, signal?, streamFn?): Promise<AgentMessage[]>`:Promise 续接
+- `AgentEventSink = (event: AgentEvent) => Promise<void> | void`
 
-**循环结构**:
+**循环结构**(`agent-loop.ts` 中的 `runLoop` 状态机):
 ```
 1. 构造 AgentContext(messages、tools、systemPrompt)
-2. emit "start" + "turn_start"
+2. emit "agent_start" + "turn_start"
 3. 循环:
    3.1 streamFn(model, context, options) → AssistantMessageStream
    3.2 监听流事件:
        - text/thinking/toolcall → 转 AgentEvent 转发
        - "done" 拿到 AssistantMessage
    3.3 if 包含 toolCalls:
-       - emit toolcall_end
        - emit tool_execution_start
-       - 并行/串行执行 tool.execute(根据 config.parallel)
+       - 并行/串行执行 tool.execute(根据 config.toolExecution)
        - emit tool_execution_end
        - 把 toolResult push 到 messages
        - 继续循环
    3.4 else: turn 自然结束
-4. emit "turn_end" + "done"
+4. emit "turn_end" + "agent_end"
 5. 返回 messages
 ```
 
-**重试逻辑**(在 `streamFn` 之外,套一层):
+**重试逻辑**(在 `loop/stream-assistant.ts` 中):
 - 捕获 stream 错误
 - if `isRetryableAssistantError(err)` && `attempt < maxRetries`:
-  - 等待 `min(maxRetryDelayMs, backoff)`
+  - 等待 `min(maxRetryDelayMs, 1000 * 2^attempt)`
   - attempt++ 并重试
-- else: 抛错
+- else: 抛错或返回 error message
 
 **测试用例**(`agent-loop.test.ts`):
 - ✅ 最简 case:无工具的 LLM turn,验证 start → text → done 事件序列
@@ -125,12 +172,15 @@ cd packages/agent && pnpm test
 - ✅ 不可重试错误:401,立即抛出
 - ✅ AbortSignal:在循环中检测 signal.aborted,优雅退出
 - ✅ Content 顺序:`buildAssistantMessage` 输出 text → thinking → tools(与 AI 层契约)
+- ✅ beforeToolCall block 钩子
+- ✅ afterToolCall 钩子增量覆盖
+- ✅ parallel toolExecution 模式
+- ✅ runAgentLoop / runAgentLoopContinue 直接 API
 
 **example**(`01-basic.ts`):
-- 创建 `models`(用 AI 层的 `createModels`)
-- mock 一次 LLM 响应(用 AI 层的 mock helper 或直接 mock fetch)
+- 用 mock provider(memory)创建 stream
 - 启动 `runAgentLoop`,打印每个事件
-- 验证: 至少看到 `start` + `text_delta` + `done` 三个事件
+- 验证: 至少看到 `agent_start` + `turn_start` + `message_start/end` + `agent_end`
 
 **验证**:
 ```bash
@@ -140,11 +190,18 @@ npx tsx examples/01-basic.ts
 ```
 
 - [ ] Step 1: 写 `__tests__/agent-loop.test.ts` 全部 case,跑挂
-- [ ] Step 2: 写 `src/agent-loop.ts` 核心循环(从 pi `packages/agent/src/agent-loop.ts` 翻译)
-- [ ] Step 3: 实现重试包装层
-- [ ] Step 4: 跑测试变绿
-- [ ] Step 5: 写 `examples/01-basic.ts` 真实跑通
-- [ ] Step 6: 提交 commit `feat(agent): core agent loop`
+- [ ] Step 2: 写 `src/loop/tool-execution/types.ts`(内部类型先定义,后续依赖)
+- [ ] Step 3: 写 `src/loop/helpers.ts` + `src/loop/tool-validation.ts`(纯函数,无依赖)
+- [ ] Step 4: 写 `src/loop/tool-execution/{prepare,execute,finalize,truncate}.ts`(工具执行流水线)
+- [ ] Step 5: 写 `src/loop/tool-execution/{sequential,parallel}.ts`(调度模式)
+- [ ] Step 6: 写 `src/loop/tool-execution.ts`(路由入口)
+- [ ] Step 7: 写 `src/loop/stream-assistant.ts`(流式响应 + 重试)
+- [ ] Step 8: 写 `src/agent-loop.ts`(公共 API + runLoop 编排,只做编排不重复实现)
+- [ ] Step 9: 跑测试变绿
+- [ ] Step 10: 写 `examples/01-basic.ts` 跑通
+- [ ] Step 11: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
+- [ ] Step 12: 暂停,展示 git diff 给用户审查
+- [ ] Step 13: 提交 commit `feat(agent): core agent loop`
 
 ---
 
@@ -152,85 +209,156 @@ npx tsx examples/01-basic.ts
 
 **目标**: 实现 `AgentHarness` 主类的骨架,集成 agent-loop、消息转换、system prompt 拼接。**本步只做骨架**,不接 session、不接 hooks。
 
-**产出文件**:
-- `packages/agent/src/harness/agent-harness.ts`(骨架,400 行)
-- `packages/agent/src/harness/messages.ts`
-- `packages/agent/src/harness/system-prompt.ts`
-- `packages/agent/src/harness/types.ts`(本包专用类型,Skill/PromptTemplate/HookEvent 等)
-- `packages/agent/src/harness/index.ts`
-- `packages/agent/__tests__/harness/agent-harness.test.ts`
-- `packages/agent/__tests__/harness/messages.test.ts`
-- `packages/agent/__tests__/harness/system-prompt.test.ts`
+> **本 Task 工程约束**(详细见 [工程原则 § 4.2](../specs/2026-07-30-phase02-engineering-principles.md)):
+> - 单文件 ≤ 500 行(软上限,超过需用户确认)
+> - `agent-harness.ts` ≤ 280 行(后续 Task 4/5/6/7/8 增量,接近 500 行要拆出子模块)
 
-**关键 API**(`AgentHarness`):
-- 构造选项:`{ model, tools, env, session, thinkingLevel?, systemPrompt?, streamOptions? }`
-- `prompt(text, options?): Promise<AssistantMessage>`:启动 LLM turn
-- `subscribe(): AsyncIterable<AgentHarnessEvent>`:订阅事件
-- `getModel()` / `setModel(model)`:运行时换模型
-- `getTools()` / `setTools(tools)`:运行时加工具
-- `getThinkingLevel()` / `setThinkingLevel(level)`
-- `getPhase(): AgentHarnessPhase`
-- `abort(): Promise<void>`:优雅终止
+**目录结构**(本 Task 产出):
+```
+packages/agent/src/
+├── harness/
+│   ├── agent-harness/                     # AgentHarness 主类拆为 3 个职责文件(避免后续 Task 膨胀到 500 行)
+│   │   ├── agent-harness.ts               # 核心类:构造 + 字段 + 生命周期 + 事件订阅 (~250 行)
+│   │   ├── config.ts                      # 配置管理:getter + setter 合并(同维度) (~200 行)
+│   │   └── prompt.ts                      # 业务入口:prompt() 主流程(本步只放 prompt)(~150 行)
+│   ├── phase.ts                           # AgentHarnessPhase 状态机 + phase 转换规则 (~100 行)
+│   ├── messages/
+│   │   ├── convert.ts                     # convertToLlm 主入口 + custom 过滤 (~150 行)
+│   │   ├── assistant.ts                   # buildAssistantMessage + content 顺序 (~120 行)
+│   │   └── custom.ts                      # bashExecution / branchSummary 等自定义消息投影 (~150 行)
+│   ├── system-prompt/
+│   │   ├── build.ts                       # buildSystemPrompt 主入口(~150 行)
+│   │   ├── parts.ts                       # 各部分拼装 (~180 行)
+│   │   └── index.ts                       # 公共导出
+│   ├── types/
+│   │   ├── harness.ts                     # Skill / PromptTemplate / HookEvent (~150 行)
+│   │   ├── events.ts                      # AgentHarnessEvent 联合 (~150 行)
+│   │   └── options.ts                     # AgentHarnessOptions / 构造选项 (~120 行)
+│   └── index.ts                           # 公共 API 重新聚合(从 agent-harness/ 重新导出 AgentHarness 类)
 
-**阶段机**:`AgentHarnessPhase = "idle" | "turn" | "compaction" | "branch_summary" | "retry"`
-- `prompt` 必须在 idle 时调用,设 phase = "turn"
-- 异常路径必须把 phase 复位回 "idle"
+packages/agent/__tests__/harness/
+├── agent-harness/
+│   ├── agent-harness.test.ts              # 核心类 + 生命周期 (~250 行)
+│   ├── config.test.ts                     # getter + setter 一起测 (~200 行)
+│   └── prompt.test.ts                     # prompt() 业务入口 (~200 行)
+├── messages/
+│   ├── convert.test.ts                    # convertToLlm (~200 行)
+│   ├── assistant.test.ts                  # buildAssistantMessage (~150 行)
+│   └── custom.test.ts                     # 自定义消息 (~150 行)
+└── system-prompt/
+    ├── build.test.ts                      # buildSystemPrompt 入口 (~200 行)
+    └── parts.test.ts                      # 各部分拼装 (~150 行)
+```
 
-**消息转换**(`messages.ts`):
-- `convertToLlm(messages: AgentMessage[], context): AgentMessage[]`:把 agent 消息投影为 LLM 消息
-  - 过滤掉 `role: "custom"`(声明合并消息默认不发给 LLM,除非显式投影)
-  - `role: "user" | "assistant" | "toolResult"` 透传
-  - 已知自定义消息类型:`bashExecution` / `branchSummary` / `compactionSummary` 各自有专门处理
-- `buildAssistantMessage(...)`:从累积 content blocks + tool calls 构造 `AssistantMessage`(顺序:text → thinking → tools,这是 AI 层契约)
+**最大单文件**:~250 行 ✓
 
-**system prompt 拼接**(`system-prompt.ts`):
-- `buildSystemPrompt({ base, skills?, promptTemplates?, env, sessionId }): string`
-- 拼接顺序:base → skills XML block → prompt templates → env context → session marker
-- 静态 `systemPrompt` 字符串 或 动态 `systemPromptProvider` 回调 都支持
+**关键 API**(`AgentHarness` 类,跨 3 个文件):
+- **agent-harness.ts**(核心):构造、字段、事件订阅(`subscribe`)、`getPhase()`、`abort()`、内部方法(`_runTurn` 等)
+- **config.ts**(配置管理):`getModel()` / `getTools()` / `getThinkingLevel()` / `getSession()` / `getResources()` / `setModel()` / `setTools()` / `setThinkingLevel()` / `setResources()` / `setSession()` —— **getter 和 setter 合并在一个文件**
+- **prompt.ts**(业务):`prompt(text, options?)` 主流程——本步只放 prompt,Task 7 增量 `skill/promptFromTemplate`,Task 8 增量 `steer/followUp/nextTurn`
+
+**预先拆分的判据**(符合"为可读性、可维护性、合理性而拆"):
+- **agent-harness.ts** = 核心类声明 + 字段 + 构造 + 事件订阅 + 生命周期,这些是**一个类的"骨架"**,其他方法可以视作"挂在骨架上的功能"
+- **config.ts** = 全部 getter + setter(共 13-15 个方法),**按"配置维度"组织**(不是按读/写维度)。getter 和 setter 操作同一组字段,共享状态,合在一起便于一眼看到"harness 暴露哪些配置接口",避免跳两个文件
+- **prompt.ts** = 业务方法,**每个方法都涉及 LLM turn 编排**——这是 harness 的"主业务",与"骨架"是不同关注点
+- 拆完每个文件 150-250 行,Task 4-8 增量时**只在对应文件加方法**,**不会**让任何文件超过 500 行软上限
+
+**导出方式**:
+- `agent-harness/agent-harness.ts` 中 export `class AgentHarness`(主类)
+- `config.ts` 中用 `export function AgentHarness_getModel(this: AgentHarness) { ... }` 形式挂载 getter/setter,或用 mixin 模式
+- `harness/index.ts` 重新聚合:`export { AgentHarness } from "./agent-harness/agent-harness.js";`
+- **不**用 `export *`(避免泄露内部细节)
+
+**`prompt.ts` 行数预警**(后续 Task 增量):
+- Task 3 末尾:150 行(只有 prompt 方法)
+- Task 4 末尾(hooks emit 点加在 prompt 内):+30 = 180 行
+- Task 5 末尾(session 接入):+30 = 210 行
+- Task 6 末尾(compact 方法 移到 compaction/compaction.ts,harness 只放 wrapper):+20 = 230 行
+- Task 7 末尾(skill/promptFromTemplate):+50 = 280 行
+- Task 8 末尾(steer/followUp/nextTurn):+60 = 340 行
+- **任何 Task 后 < 350 行,远低于 500 软上限**(如果接近或超过 500,按工程原则 § 2.2 走确认流程)
 
 **测试用例**:
-- `agent-harness.test.ts`:
+- `agent-harness/agent-harness.test.ts`:
   - ✅ 构造 harness 不报错
-  - ✅ `prompt()` 在 idle 时正常工作,phase 正确转换
-  - ✅ `prompt()` 在非 idle 时抛 `AgentHarnessError("busy")`
-  - ✅ `setModel` / `setTools` / `setThinkingLevel` 立即生效
+  - ✅ 事件订阅(`subscribe()`)能拿到事件
+  - ✅ `getPhase()` 返回正确 phase
   - ✅ `abort()` 在 turn 中能中断
   - ✅ 异常路径后 phase 回到 idle
-- `messages.test.ts`:
+- `agent-harness/config.test.ts`:
+  - ✅ `getModel()` / `getTools()` / `getThinkingLevel()` / `getSession()` 返回构造时的值
+  - ✅ `setModel` / `setTools` / `setThinkingLevel` / `setResources` 立即生效
+  - ✅ setter 触发相应钩子
+- `agent-harness/prompt.test.ts`:
+  - ✅ `prompt()` 在 idle 时正常工作,phase 正确转换
+  - ✅ `prompt()` 在非 idle 时抛 `AgentHarnessError("busy")`
+- `messages/convert.test.ts`:
   - ✅ `convertToLlm` 默认过滤 custom
   - ✅ `convertToLlm` 处理 bashExecution(转 user 消息)
   - ✅ `convertToLlm` 处理 branchSummary(转 user 消息)
+- `messages/assistant.test.ts`:
   - ✅ `buildAssistantMessage` 输出顺序 text → thinking → tools
-- `system-prompt.test.ts`:
+- `system-prompt/build.test.ts`:
   - ✅ 静态字符串拼接
-  - ✅ skills XML block 格式正确
   - ✅ dynamic provider 回调每次 turn 调用一次
+- `system-prompt/parts.test.ts`:
+  - ✅ skills XML block 格式正确
+  - ✅ 各部分按顺序拼接
 
 **验证**:
 ```bash
 cd packages/agent && pnpm test harness
 ```
 
-- [ ] Step 1: 写 `harness/types.ts`(`Skill` / `PromptTemplate` / `HookEvent` / `AgentHarnessEvent` 等)
-- [ ] Step 2: 写 `harness/messages.ts` 三个函数
-- [ ] Step 3: 写 `harness/system-prompt.ts` 拼接函数
-- [ ] Step 4: 写测试 `messages.test.ts` + `system-prompt.test.ts`,跑绿
-- [ ] Step 5: 写 `harness/agent-harness.ts` 骨架(phase 机器 + prompt + subscribe + abort + 模型/工具 setter)
-- [ ] Step 6: 写测试 `agent-harness.test.ts`,跑绿
-- [ ] Step 7: 更新 `examples/01-basic.ts` 用 harness 启动(替换直接调 agent-loop)
-- [ ] Step 8: 提交 commit `feat(agent): harness skeleton + messages + system-prompt`
+- [ ] Step 1: 写 `harness/types/{harness,events,options}.test.ts` + 跑挂(RED)→ 写 `harness/types/{harness,events,options}.ts` → 跑绿
+- [ ] Step 2: 写 `harness/messages/{convert,assistant,custom}.test.ts` + 跑挂 → 写 `harness/messages/{convert,assistant,custom}.ts` → 跑绿
+- [ ] Step 3: 写 `harness/system-prompt/{build,parts}.test.ts` + 跑挂 → 写 `harness/system-prompt/{build,parts}.ts` → 跑绿
+- [ ] Step 4: 写 `harness/phase.test.ts` + 跑挂 → 写 `harness/phase.ts` → 跑绿
+- [ ] Step 5: 写 `harness/agent-harness/agent-harness.test.ts` + 跑挂 → 写 `harness/agent-harness/agent-harness.ts` 核心类 → 跑绿
+- [ ] Step 6: 写 `harness/agent-harness/config.test.ts` + 跑挂 → 写 `harness/agent-harness/config.ts` getter + setter → 跑绿
+- [ ] Step 7: 写 `harness/agent-harness/prompt.test.ts` + 跑挂 → 写 `harness/agent-harness/prompt.ts` `prompt()` 主流程 → 跑绿
+- [ ] Step 8: 更新 `examples/01-basic.ts` 用 harness 启动(替换直接调 agent-loop)
+- [ ] Step 9: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
+- [ ] Step 10: 暂停,展示 git diff 给用户审查
+- [ ] Step 11: 提交 commit `feat(agent): harness skeleton + messages + system-prompt`
 
 ---
 
 ## Task 4: 钩子系统(hooks + emit + handlers)
 
-**目标**: 实现 `DefaultAgentHarnessHooks`,这是与未来扩展系统对接的核心。**完整保留 pi 的钩子协议**(17 个事件 + 幻影结果类型 + observers/handlers 分离)。
+**目标**: 实现 `DefaultAgentHarnessHooks`,这是与未来扩展系统对接的核心。**先实现 8 个核心事件 + 变更语义 + observers/handlers 分离**,其余 9 个事件留接口(预声明 + 占位),未来按需启用。
 
-**产出文件**:
-- `packages/agent/src/harness/hooks.ts`
-- `packages/agent/src/harness/agent-harness.ts`(增量,接 emit 钩子)
-- `packages/agent/__tests__/harness/hooks.test.ts`
-- `packages/agent/examples/07-hooks.ts`
+> **本 Task 工程约束**(详细见 [工程原则 § 4.3](../specs/2026-07-30-phase02-engineering-principles.md)):
+> - 单文件 ≤ 500 行(软上限,超过需用户确认)
+> - 8 个核心事件类型放 `hooks/types.ts`(≤ 250 行)
+> - 5 种语义**不按事件拆 5 个文件**,统一放 `hooks/semantics.ts`(避免"为对称而拆")
+
+**目录结构**(本 Task 产出):
+```
+packages/agent/src/
+├── harness/
+│   ├── hooks/
+│   │   ├── types.ts                       # 8 个核心事件 + 9 个预声明事件 + HookEvent 泛型 (~250 行)
+│   │   ├── semantics.ts                   # 5 种语义的纯函数(顺序转换 / 累积补丁 / block / cancel / fire-forget)(~200 行)
+│   │   ├── default-hooks-state.ts         # 内部状态:handlers / observers / cleanups 三个 Map 的封装 (~120 行)
+│   │   ├── default-hooks.ts               # DefaultAgentHarnessHooks 主类:构造 + observe + on + emit + addCleanup + clear + dispose (~300 行)
+│   │   └── index.ts
+│   └── agent-harness.ts                   # 增量:在 phase 转换 / turn 执行 / tool 调用等点 emit 8 个核心事件
+
+packages/agent/__tests__/harness/
+├── hooks/
+│   ├── default-hooks.test.ts              # 核心类行为:注册 / 移除 / clear / dispose / cleanup / emit (~350 行)
+│   ├── semantics.test.ts                  # 5 种语义的纯函数行为 (~300 行)
+│   └── types.test.ts                      # 8 个核心 + 9 个预声明事件类型校验 (~150 行)
+```
+
+**最大单文件**:~300 行(可接受,主类方法紧密耦合)
+
+**拆分理由**(避免冗余):
+- `default-hooks.ts` 300 行 = 主类公共 API(observe / on / emit / addCleanup / clear / dispose) + 内部 state 协作 —— **dispatch 和 cleanup 与主类公共 API 紧密耦合(observe/on 调 dispatch,clear/dispose 调 cleanup),不分离**
+- `default-hooks-state.ts` 120 行 = 内部数据结构,封装三个 Map 的增删改查,**纯粹的状态管理,可独立单测**
+- `semantics.ts` 200 行 = 5 种语义的纯函数,统一在一个文件 —— **5 个文件每个 80-100 行本质是同模板,合并后便于读者对比共性**
+- `types.ts` 250 行 = 8 个核心事件 + 9 个预声明事件(只声明类型,不实现 emit 路由)
 
 **关键 API**:
 - `AgentHarnessHooks<E, Ctx>`:公共接口
@@ -246,26 +374,32 @@ cd packages/agent && pnpm test harness
 - `HookEvent<TType, TResult = void>`:事件类型,带幻影结果
 - `HookHandler<E, Ctx>` / `HookObserver<E, Ctx>`:handler / observer 类型
 
-**事件清单**(17 个,完整保留 pi):
-| 事件 | 幻影结果 |
-|------|----------|
-| `context` | `{ messages?: AgentMessage[] }` |
-| `before_agent_start` | `{ messages?, systemPrompt? }` |
-| `before_provider_request` | `{ streamOptions? }` |
-| `before_provider_payload` | `{ payload }` |
-| `after_provider_response` | undefined |
-| `tool_call` | `{ block?, reason? }` |
-| `tool_result` | `{ content?, details?, isError?, terminate? }` |
-| `message_end` | undefined |
-| `session_before_compact` / `session_compact` / `session_before_tree` / `session_tree` | 各自定义 |
-| `model_update` / `thinking_level_update` / `resources_update` / `tools_update` | undefined |
-| `queue_update` / `save_point` / `abort` / `settled` | undefined |
+**事件清单**(8 个核心 + 9 个预声明,分两批实施):
 
-**变更语义**(从 pi 完整保留):
-- `context`: 顺序转换,每个 handler 可改 `messages`
-- `tool_call`: 顺序执行,遇 `block: true` 提前退出
-- `tool_result`: 顺序累积补丁
-- `session_before_*`: 顺序执行,遇 `cancel: true` 提前退出
+| 事件 | 状态 | 幻影结果 |
+|------|------|----------|
+| `context` | ✅ **核心** | `{ messages?: AgentMessage[] }` |
+| `before_agent_start` | ✅ **核心** | `{ messages?, systemPrompt? }` |
+| `tool_call` | ✅ **核心** | `{ block?, reason? }` |
+| `tool_result` | ✅ **核心** | `{ content?, details?, isError?, terminate? }` |
+| `message_end` | ✅ **核心** | undefined |
+| `session_before_compact` | ✅ **核心** | `{ cancel?, compaction? }` |
+| `model_update` | ✅ **核心** | undefined |
+| `abort` | ✅ **核心** | undefined |
+| `before_provider_request` | 🔜 预声明 | `{ streamOptions? }` |
+| `before_provider_payload` | 🔜 预声明 | `{ payload }` |
+| `after_provider_response` | 🔜 预声明 | undefined |
+| `session_compact` / `session_before_tree` / `session_tree` | 🔜 预声明 | 各自定义 |
+| `thinking_level_update` / `resources_update` / `tools_update` / `queue_update` / `save_point` / `settled` | 🔜 预声明 | undefined |
+
+> **预声明事件** = 类型已定义 + 默认实现 emit 走 `runFireAndForgetSemantics`,handler 可注册但当前不调用具体语义;启用时只需在 `emit` 路由里加 case。
+
+**变更语义**(`semantics.ts` 中 5 个纯函数):
+- `runContextSemantics` (context 事件): 顺序转换,每个 handler 可改 `messages`,链式传递
+- `runToolCallSemantics` (tool_call 事件): 顺序执行,遇 `block: true` 提前退出
+- `runToolResultSemantics` (tool_result 事件): 顺序累积补丁
+- `runSessionBeforeSemantics` (session_before_* 事件): 顺序执行,遇 `cancel: true` 提前退出
+- `runFireAndForgetSemantics` (其他事件): 并行调用,忽略返回值
 
 **测试用例**(`hooks.test.ts`):
 - ✅ `observe` 只读,返回值被忽略
@@ -289,13 +423,17 @@ cd packages/agent && pnpm test hooks
 npx tsx examples/07-hooks.ts
 ```
 
-- [ ] Step 1: 写 `hooks.test.ts` 全部 case,跑挂
-- [ ] Step 2: 写 `hooks.ts` `HookEvent` / `HookHandler` / `DefaultAgentHarnessHooks`
-- [ ] Step 3: 实现各事件的变更语义
-- [ ] Step 4: 跑测试变绿
-- [ ] Step 5: 把 hooks 接入 `agent-harness.ts`(在 phase 转换、turn 执行、tool 调用等关键点 emit)
-- [ ] Step 6: 写 `examples/07-hooks.ts` 跑通
-- [ ] Step 7: 提交 commit `feat(agent): hooks system`
+- [ ] Step 1: 写 `hooks/{default-hooks,semantics,types}.test.ts` 全部 case,跑挂(RED)
+- [ ] Step 2: 写 `hooks/types.ts` `HookEvent` 泛型 + 8 个核心事件 + 9 个预声明事件
+- [ ] Step 3: 写 `hooks/semantics.ts` 5 个语义纯函数
+- [ ] Step 4: 写 `hooks/default-hooks-state.ts` 三个 Map 封装
+- [ ] Step 5: 写 `hooks/default-hooks.ts` 主类(observe / on / emit / addCleanup / clear / dispose),把 dispatch / cleanup 逻辑合并到主类
+- [ ] Step 6: 跑测试变绿(GREEN)
+- [ ] Step 7: 把 hooks 接入 `agent-harness.ts`(在 phase 转换、turn 执行、tool 调用等关键点 emit 8 个核心事件)
+- [ ] Step 8: 写 `examples/07-hooks.ts` 跑通
+- [ ] Step 9: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
+- [ ] Step 10: 暂停,展示 git diff 给用户审查
+- [ ] Step 11: 提交 commit `feat(agent): hooks system (8 core events + 9 pre-declared)`
 
 ---
 
@@ -303,21 +441,52 @@ npx tsx examples/07-hooks.ts
 
 **目标**: 实现 Session 类(树形 entry 管理、上下文构建)+ InMemory / JSONL 双后端。**完整保留 pi**。
 
-**产出文件**:
-- `packages/agent/src/harness/session/session.ts`(主类)
-- `packages/agent/src/harness/session/jsonl-storage.ts`
-- `packages/agent/src/harness/session/jsonl-repo.ts`
-- `packages/agent/src/harness/session/memory-storage.ts`
-- `packages/agent/src/harness/session/memory-repo.ts`
-- `packages/agent/src/harness/session/repo-utils.ts`
-- `packages/agent/src/harness/session/index.ts`
-- `packages/agent/src/harness/env/nodejs.ts`(本步同步交付,Node 执行环境)
-- `packages/agent/__tests__/harness/session/session.test.ts`
-- `packages/agent/__tests__/harness/session/jsonl-repo.test.ts`
-- `packages/agent/__tests__/harness/session/memory-repo.test.ts`
-- `packages/agent/__tests__/harness/session/repo-utils.test.ts`
-- `packages/agent/__tests__/harness/env/nodejs.test.ts`
-- `packages/agent/examples/03-session.ts`
+> **本 Task 工程约束**(详细见 [工程原则 § 4.4](../specs/2026-07-30-phase02-engineering-principles.md)):
+> - 单文件 ≤ 500 行(软上限,超过需用户确认)
+> - Session 主类 `session.ts` ≤ 280 行
+> - repos 拆到 `repos/` 子目录,每个 repo 独立可测
+> - env 单独 `env/` 子目录,与 session 平级
+
+**目录结构**(本 Task 产出):
+```
+packages/agent/src/
+├── harness/
+│   ├── session/
+│   │   ├── types.ts                       # SessionTreeEntry 联合 + 各变体 (~250 行)
+│   │   ├── session.ts                     # Session 主类(append / getLeaf / setLeaf / fork 等) (~350 行,含 fork 合并)
+│   │   ├── context-builder.ts             # buildContextEntries + buildContext (~250 行)
+│   │   ├── storage.ts                     # SessionStorage 接口 + FileError (~80 行)
+│   │   ├── repos/
+│   │   │   ├── memory-storage.ts          # 内存 storage 实现 (~150 行)
+│   │   │   ├── memory-repo.ts             # 内存 repo(Session 适配器) (~150 行)
+│   │   │   ├── jsonl-storage.ts           # JSONL storage 实现 (~200 行)
+│   │   │   ├── jsonl-repo.ts              # JSONL repo(Session 适配器) (~200 行)
+│   │   │   └── repo-utils.ts              # 共享工具(serialize / deserialize) (~120 行)
+│   │   └── index.ts
+│   ├── env/
+│   │   ├── types.ts                       # ExecutionEnv 接口 + FileError + ExecOptions (~120 行)
+│   │   ├── result.ts                      # Result<T, E> 工具类型 (~50 行)
+│   │   ├── nodejs.ts                      # NodeExecutionEnv(readFile/writeFile/stat/exec) (~280 行)
+│   │   └── index.ts
+│   └── agent-harness.ts                   # 增量:接入 session(appendEntry on turn)
+
+packages/agent/__tests__/harness/
+├── session/
+│   ├── session.test.ts                    # Session 主类 + fork 一起测 (~500 行软上限边界,需评估)
+│   ├── memory-repo.test.ts                # 内存后端 (~200 行)
+│   ├── jsonl-repo.test.ts                 # JSONL 后端 (~250 行)
+│   └── repo-utils.test.ts                 # 共享工具 (~150 行)
+└── env/
+    └── nodejs.test.ts                     # NodeExecutionEnv (~300 行)
+```
+
+**最大单文件**:~350 行(主类 fork 已合并;若接近 500 软上限,按工程原则 § 2.2 走确认流程)
+
+**为什么 `session.ts` + `fork` 合并**:
+- fork 是 session 的一个方法,操作 session 内部状态(树形 entries + leaf)
+- 拆到 `fork.ts` 后,读代码的人要跳两个文件才能理解"fork 怎么工作"
+- 预估 350 行,远低于 500 软上限
+- 若实际接近 500,可拆出 `session-fork.ts` 子模块,但目前没必要预先拆
 
 **Session 类核心**:
 - 树形 `entries: SessionTreeEntry[]`(联合类型:`MessageEntry | BranchSummaryEntry | CompactionEntry | CustomEntry | LeafEntry`)
@@ -396,18 +565,17 @@ cd packages/agent && pnpm test env
 npx tsx examples/03-session.ts
 ```
 
-- [ ] Step 1: 写 `harness/session/types.ts`(`SessionTreeEntry` 等)放在 `harness/types.ts` 同包
-- [ ] Step 2: 写 `harness/session/memory-storage.ts` + `memory-repo.ts`
-- [ ] Step 3: 写 `memory-repo.test.ts` 跑绿
-- [ ] Step 4: 写 `harness/session/jsonl-storage.ts` + `jsonl-repo.ts` + `repo-utils.ts`
-- [ ] Step 5: 写 `jsonl-repo.test.ts` + `repo-utils.test.ts` 跑绿
-- [ ] Step 6: 写 `harness/session/session.ts` 主类
-- [ ] Step 7: 写 `session.test.ts` 跑绿
-- [ ] Step 8: 写 `harness/env/nodejs.ts`
-- [ ] Step 9: 写 `nodejs.test.ts` 跑绿
-- [ ] Step 10: 把 session + env 接入 `agent-harness.ts`(`prompt` 时 appendEntry)
-- [ ] Step 11: 写 `examples/03-session.ts` 跑通
-- [ ] Step 12: 提交 commit `feat(agent): session dual-backend + nodejs env`
+- [ ] Step 1: 写 `harness/session/types.test.ts` + 跑挂 → 写 `harness/session/types.ts` `SessionTreeEntry` 等 → 跑绿
+- [ ] Step 2: 写 `harness/session/{memory-storage,memory-repo}.test.ts` + 跑挂 → 写实现 → 跑绿
+- [ ] Step 3: 写 `harness/session/{jsonl-storage,jsonl-repo,repo-utils}.test.ts` + 跑挂 → 写实现 → 跑绿
+- [ ] Step 4: 写 `harness/session/session.test.ts` + 跑挂(主类 + fork)→ 写 `harness/session/session.ts`(含 fork)→ 跑绿
+- [ ] Step 5: 写 `harness/session/context-builder.test.ts` + 跑挂 → 写 `harness/session/context-builder.ts` → 跑绿
+- [ ] Step 6: 写 `harness/env/nodejs.test.ts` + 跑挂 → 写 `harness/env/nodejs.ts` → 跑绿
+- [ ] Step 7: 把 session + env 接入 `agent-harness.ts`(`prompt` 时 appendEntry)
+- [ ] Step 8: 写 `examples/03-session.ts` 跑通
+- [ ] Step 9: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
+- [ ] Step 10: 暂停,展示 git diff 给用户审查
+- [ ] Step 11: 提交 commit `feat(agent): session dual-backend + nodejs env`
 
 ---
 
@@ -415,22 +583,47 @@ npx tsx examples/03-session.ts
 
 **目标**: 实现 `compact()` + `navigateTree()`,从 pi 完整保留三件套(compaction.ts + branch-summarization.ts + utils.ts)。**手动触发,不接触发器**。
 
-**产出文件**:
-- `packages/agent/src/harness/compaction/compaction.ts`
-- `packages/agent/src/harness/compaction/branch-summarization.ts`
-- `packages/agent/src/harness/compaction/utils.ts`
-- `packages/agent/src/harness/compaction/index.ts`
-- `packages/agent/__tests__/harness/compaction/compaction.test.ts`
-- `packages/agent/__tests__/harness/compaction/branch-summarization.test.ts`
-- `packages/agent/__tests__/harness/compaction/utils.test.ts`
-- `packages/agent/examples/04-compaction.ts`
+> **本 Task 工程约束**(详细见 [工程原则 § 4.5](../specs/2026-07-30-phase02-engineering-principles.md)):
+> - 单文件 ≤ 500 行(软上限,超过需用户确认)
+> - `compact.ts` ≤ 300 行(主入口,带钩子调用;含 file-ops 内联工具)
+> - `branch-summarization.ts` ≤ 250 行(独立逻辑)
+> - **不**为对称拆 `should-compact.ts` 单独文件(本包内不调用,合入 settings)
+
+**目录结构**(本 Task 产出):
+```
+packages/agent/src/
+├── harness/
+│   ├── compaction/
+│   │   ├── types.ts                       # CompactionSettings / CompactionResult / BranchSummaryResult (~150 行)
+│   │   ├── settings.ts                    # DEFAULT_COMPACTION_SETTINGS + shouldCompact 工具函数 (~120 行)
+│   │   ├── estimate.ts                    # estimateTokens(基于 chars/4 启发式) (~80 行)
+│   │   ├── prepare.ts                     # prepareCompaction(选保留边界) (~150 行)
+│   │   ├── compact.ts                     # compact 主入口 + file-ops 内联(走 session_before_compact 钩子) (~300 行)
+│   │   ├── branch-summarization.ts        # generateBranchSummary + collectEntriesForBranchSummary (~250 行)
+│   │   └── index.ts
+│   └── agent-harness.ts                   # 增量:加 compact() + navigateTree() 方法
+
+packages/agent/__tests__/harness/compaction/
+├── compact.test.ts                        # compact 主流程 + file-ops 一起测 (~350 行)
+├── branch-summarization.test.ts           # branch summary (~250 行)
+├── prepare.test.ts                        # prepare 选保留边界 (~150 行)
+├── estimate.test.ts                       # estimateTokens (~100 行)
+└── settings.test.ts                       # DEFAULT_COMPACTION_SETTINGS + shouldCompact (~100 行)
+```
+
+**最大单文件**:~300 行(主入口 + file-ops 内联,可接受)
+
+**为什么 `should-compact.ts` 取消 + `file-ops.ts` 合并**:
+- `shouldCompact` 本包内不调用(spec 8.1 明确"仅手动触发"),既然不调用,单独 80 行文件没意义;并入 `settings.ts` 约 120 行
+- `extractFileOpsFromMessage` 是 compact 内部使用的工具函数,强耦合;独立 120 行文件 + 主类依赖它,跳文件;直接内联到 `compact.ts` 末尾
+- **不是为拆而拆**——两个文件都服务于"compact 主流程",合在一起读最快
 
 **compaction.ts 关键 API**:
 - `compact(harness, options?): Promise<CompactResult>`:执行压缩
 - `prepareCompaction(entries, settings): CompactionPreparation`:选保留边界
 - `estimateTokens(message: AgentMessage): number`:基于 `chars / 4` 启发式
-- `shouldCompact(contextTokens, contextWindow, settings): boolean`:**只导出函数,不调用**
-- `DEFAULT_COMPACTION_SETTINGS: CompactionSettings`
+- `extractFileOpsFromMessage(message: AgentMessage): { readFiles: string[], modifiedFiles: string[] }`:内联在 compact.ts
+- `DEFAULT_COMPACTION_SETTINGS: CompactionSettings` + `shouldCompact(...)`:在 settings.ts
 
 **branch-summarization.ts 关键 API**:
 - `generateBranchSummary(entries, model, options?): Promise<{ summary, details? }>`
@@ -446,19 +639,22 @@ npx tsx examples/03-session.ts
 - 两个方法都走 `session_before_*` 钩子
 
 **测试用例**:
-- `compaction.test.ts`:
-  - ✅ `estimateTokens` 对各角色消息返回合理值
-  - ✅ `shouldCompact` 函数正确(虽然不调用,但保证语义正确)
-  - ✅ `prepareCompaction` 选保留边界(基于 `keepRecentTokens`)
-  - ✅ `compact` 真实跑通(用 mock model,或真实小模型):生成 summary + 写 CompactionEntry
+- `compact.test.ts`:
+  - ✅ `compact` 真实跑通(用 mock model):生成 summary + 写 CompactionEntry
   - ✅ `compact` 触发 `session_before_compact` 钩子
   - ✅ 钩子 `cancel: true` 阻止压缩
   - ✅ 钩子 `compaction` 注入已有结果,跳过 LLM 调用
+  - ✅ `extractFileOpsFromMessage` 从 tool result 提取 read/modified 文件(内联测试)
 - `branch-summarization.test.ts`:
   - ✅ `collectEntriesForBranchSummary` 收集从 root 到 targetId 路径上被丢弃的 entries
   - ✅ `generateBranchSummary` 真实跑通
-- `utils.test.ts`:
-  - ✅ `extractFileOpsFromMessage` 从 tool result 提取 read/modified 文件
+- `prepare.test.ts`:
+  - ✅ `prepareCompaction` 选保留边界(基于 `keepRecentTokens`)
+- `estimate.test.ts`:
+  - ✅ `estimateTokens` 对各角色消息返回合理值
+- `settings.test.ts`:
+  - ✅ `DEFAULT_COMPACTION_SETTINGS` 默认值
+  - ✅ `shouldCompact` 函数正确(虽然不调用,但保证语义正确)
 
 **example**(`04-compaction.ts`):
 - 启动 harness,跑 ~10 轮长对话(用真实 API)
@@ -471,15 +667,14 @@ cd packages/agent && pnpm test compaction
 npx tsx examples/04-compaction.ts
 ```
 
-- [ ] Step 1: 写 `harness/compaction/utils.ts`(从 pi 翻译)
-- [ ] Step 2: 写 `utils.test.ts` 跑绿
-- [ ] Step 3: 写 `harness/compaction/compaction.ts`(从 pi 翻译,保留 `shouldCompact` 函数)
-- [ ] Step 4: 写 `compaction.test.ts` 跑绿
-- [ ] Step 5: 写 `harness/compaction/branch-summarization.ts`(从 pi 翻译)
-- [ ] Step 6: 写 `branch-summarization.test.ts` 跑绿
-- [ ] Step 7: 接入 `agent-harness.ts`:`compact()` + `navigateTree()` 方法
-- [ ] Step 8: 写 `examples/04-compaction.ts` 跑通
-- [ ] Step 9: 提交 commit `feat(agent): compaction + branch summarization`
+- [ ] Step 1: 写 `harness/compaction/{types,settings,estimate,prepare}.test.ts` + 跑挂 → 写实现 → 跑绿
+- [ ] Step 2: 写 `harness/compaction/branch-summarization.test.ts` + 跑挂 → 写 `harness/compaction/branch-summarization.ts` → 跑绿
+- [ ] Step 3: 写 `harness/compaction/compact.test.ts` + 跑挂 → 写 `harness/compaction/compact.ts`(含内联 file-ops)→ 跑绿
+- [ ] Step 4: 接入 `agent-harness.ts`:`compact()` + `navigateTree()` 方法
+- [ ] Step 5: 写 `examples/04-compaction.ts` 跑通
+- [ ] Step 6: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
+- [ ] Step 7: 暂停,展示 git diff 给用户审查
+- [ ] Step 8: 提交 commit `feat(agent): compaction + branch summarization`
 
 ---
 
@@ -487,13 +682,37 @@ npx tsx examples/04-compaction.ts
 
 **目标**: 实现 skills / prompt templates 的加载与 system prompt 注入,以及 `skill()` / `promptFromTemplate()` 方法。
 
-**产出文件**:
-- `packages/agent/src/harness/skills.ts`
-- `packages/agent/src/harness/prompt-templates.ts`
-- `packages/agent/__tests__/harness/skills.test.ts`
-- `packages/agent/__tests__/harness/prompt-templates.test.ts`
-- `packages/agent/examples/05-skills.ts`
-- `packages/agent/examples/06-prompt-templates.ts`
+> **本 Task 工程约束**(详细见 [工程原则 § 4.6](../specs/2026-07-30-phase02-engineering-principles.md)):
+> - 单文件 ≤ 500 行(软上限,超过需用户确认)
+> - skills 和 prompt-templates **平级**两个子目录,不互相依赖
+> - 每个子目录 ≤ 4 个文件,职责清晰
+
+**目录结构**(本 Task 产出):
+```
+packages/agent/src/
+├── harness/
+│   ├── skills/
+│   │   ├── types.ts                       # Skill 类型 (~100 行)
+│   │   ├── format.ts                      # formatSkillsForSystemPrompt + formatSkillInvocation (~200 行)
+│   │   ├── load.ts                        # parseSkillContent(YAML frontmatter) + loadSkillFromFile(走 ExecutionEnv) (~200 行,合并 parse+load)
+│   │   └── index.ts
+│   ├── prompt-templates/
+│   │   ├── types.ts                       # PromptTemplate 类型 (~80 行)
+│   │   ├── format.ts                      # formatPromptTemplateInvocation + 占位符替换 (~150 行)
+│   │   └── index.ts
+│   └── agent-harness.ts                   # 增量:加 skill() + promptFromTemplate() + setResources()
+
+packages/agent/__tests__/harness/
+├── skills.test.ts                         # skills 全部行为(含 format + parse + load)(~300 行)
+└── prompt-templates.test.ts               # prompt templates 全部行为 (~200 行)
+```
+
+**最大单文件**:~200 行(可接受)
+
+**为什么 `parse.ts` + `load.ts` 合并**:
+- 都是"加载 skill"的不同阶段:parse 解析 frontmatter,load 走 env 读文件 + 调 parse
+- 拆开后,读 load.ts 要看 parse.ts,跳文件;合在一起线性阅读最快
+- 预估 200 行,远低于 500 软上限
 
 **skills.ts 关键 API**:
 - `formatSkillsForSystemPrompt(skills: Skill[]): string` → XML block(遵循 agentskills.io)
@@ -532,12 +751,12 @@ npx tsx examples/05-skills.ts
 npx tsx examples/06-prompt-templates.ts
 ```
 
-- [ ] Step 1: 写 `skills.ts`(从 pi 翻译)
-- [ ] Step 2: 写 `skills.test.ts` 跑绿
-- [ ] Step 3: 写 `prompt-templates.ts`(从 pi 翻译)
-- [ ] Step 4: 写 `prompt-templates.test.ts` 跑绿
-- [ ] Step 5: 接入 `agent-harness.ts`:`skill()` + `promptFromTemplate()` + `setResources()`
-- [ ] Step 6: 写 `examples/05-skills.ts` + `examples/06-prompt-templates.ts` 跑通
+- [ ] Step 1: 写 `skills/{types,format,load}.test.ts` + 跑挂 → 写 `skills/{types,format,load}.ts` → 跑绿
+- [ ] Step 2: 写 `prompt-templates/{types,format}.test.ts` + 跑挂 → 写 `prompt-templates/{types,format}.ts` → 跑绿
+- [ ] Step 3: 接入 `agent-harness.ts`:`skill()` + `promptFromTemplate()` + `setResources()`
+- [ ] Step 4: 写 `examples/05-skills.ts` + `examples/06-prompt-templates.ts` 跑通
+- [ ] Step 5: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
+- [ ] Step 6: 暂停,展示 git diff 给用户审查
 - [ ] Step 7: 提交 commit `feat(agent): skills + prompt templates`
 
 ---
@@ -546,16 +765,48 @@ npx tsx examples/06-prompt-templates.ts
 
 **目标**: 实现 `steer()` / `followUp()` / `nextTurn()` 队列操作,以及 CustomAgentMessages 声明合并的演示。
 
-**产出文件**:
-- `packages/agent/src/harness/agent-harness.ts`(增量,加 3 个方法)
-- `packages/agent/examples/08-custom-messages.ts`
-- `packages/agent/__tests__/harness/agent-harness.test.ts`(增量测试)
+> **本 Task 工程约束**(详细见 [工程原则 § 4.7](../specs/2026-07-30-phase02-engineering-principles.md)):
+> - 单文件 ≤ 500 行(软上限,超过需用户确认)
+> - **不**为对称拆 3 个独立队列文件;统一 `queue.ts` 一个文件处理 steer/followUp/nextTurn
+> - **强制审视 `agent-harness/`**:如果经过 Task 4/5/6/7 增量后任何文件接近或超过 500,**走工程原则 § 2.2 确认流程**
+
+**目录结构**(本 Task 产出):
+```
+packages/agent/src/
+├── harness/
+│   ├── agent-harness/                     # 3 个职责文件(继承 Task 3 决策,本步只增量 config.ts / prompt.ts)
+│   │   ├── agent-harness.ts               # 核心类 - 不变 (~250 行)
+│   │   ├── config.ts                      # 配置管理 - 增量 getSteeringMode / getFollowUpMode / setSteeringMode / setFollowUpMode (~220 行)
+│   │   ├── prompt.ts                      # 业务入口 - 增量 steer / followUp / nextTurn 三个方法 (~250 行)
+│   │   └── queue.ts                       # 队列处理内部逻辑(从 prompt.ts 拆出,避免 prompt.ts 超过 250 行) (~120 行)
+│   ├── queue.ts                           # 队列处理纯函数:steer / followUp / nextTurn 三个函数 + QueueMode 行为差异 (~300 行,合并三个原独立文件)
+│   └── index.ts                           # 公共 API 重新聚合
+
+packages/agent/__tests__/harness/
+├── agent-harness/
+│   ├── prompt.test.ts                     # 增量测试:steer / followUp / nextTurn (~350 行)
+│   └── config.test.ts                     # 增量测试:queue mode setter / getter (~220 行)
+├── queue.test.ts                          # 队列处理纯函数统一测试(~300 行)
+```
+
+**最大单文件**:~300 行(可接受,队列处理模式统一)
+
+**为什么合并 `queue/` 子目录的 3 个文件**:
+- 三个队列操作本质是同一种模式(drain queue + 决定何时投递 + QueueMode 行为差异),**为对称而拆**
+- 合并 `queue.ts` 约 300 行,5 个纯函数(`enqueueSteer` / `drainSteerQueue` / `enqueueFollowUp` / `drainFollowUpQueue` / `enqueueNextTurn`),读者能在一个文件里看到所有 3 种队列处理 + QueueMode 差异
+- 单独 `queue/` 子目录 + `agent-harness/queue.ts` 是双重抽象,统一为单个 `harness/queue.ts` + `agent-harness/queue.ts` 协作更清晰
+
+**预先拆 agent-harness 的好处**(回到 Task 3 的决策):
+- Task 3 末尾:`agent-harness/agent-harness.ts` 250 + `config.ts` 200 + `prompt.ts` 150 = 总 ~600 行
+- Task 8 末尾:`agent-harness/agent-harness.ts` 250 + `config.ts` 220 + `prompt.ts` 250 + `queue.ts` 120 = 总 ~840 行
+- **没有任何单文件超过 500 软上限**
+- 如果实际接近 500,可拆出 `prompt-queue.ts` / `config-queue.ts` 等子模块,但目前没必要预先拆
 
 **队列操作**:
 - `harness.steer(text, options?)`:中途插入用户消息,中断当前 LLM 流
 - `harness.followUp(text, options?)`:排队用户消息,等当前 turn 结束投递
 - `harness.nextTurn(text, options?)`:在下一轮用户消息之前插入
-- 队列模式 setter / getter(`setSteeringMode` / `setFollowUpMode`)
+- 队列模式 setter / getter(`setSteeringMode` / `setFollowUpMode` / `getSteeringMode` / `getFollowUpMode`)放 `config.ts`
 
 **自定义消息演示**(`examples/08-custom-messages.ts`):
 ```ts
@@ -594,10 +845,14 @@ cd packages/agent && pnpm test agent-harness
 npx tsx examples/08-custom-messages.ts
 ```
 
-- [ ] Step 1: 在 `agent-harness.ts` 加 `steer` / `followUp` / `nextTurn` 三个方法
-- [ ] Step 2: 加对应的测试 case
-- [ ] Step 3: 写 `examples/08-custom-messages.ts` 跑通
-- [ ] Step 4: 提交 commit `feat(agent): queue ops + custom messages demo`
+- [ ] Step 1: 写 `harness/queue.test.ts` + 跑挂(RED)→ 写 `harness/queue.ts`(enqueueSteer / drainSteerQueue / enqueueFollowUp / drainFollowUpQueue / enqueueNextTurn)→ 跑绿
+- [ ] Step 2: 写 `harness/agent-harness/queue.ts` 队列处理内部逻辑(从 prompt.ts 拆出,协作 harness/queue.ts)
+- [ ] Step 3: 写 `harness/agent-harness/config.test.ts` 增量测试 + 跑挂 → 写 `config.ts` 增量 `setSteeringMode` / `setFollowUpMode` / `getSteeringMode` / `getFollowUpMode` → 跑绿
+- [ ] Step 4: 写 `harness/agent-harness/prompt.test.ts` 增量测试 + 跑挂 → 写 `prompt.ts` 增量 `steer()` / `followUp()` / `nextTurn()` 三个业务方法 → 跑绿
+- [ ] Step 5: 写 `examples/08-custom-messages.ts` 跑通
+- [ ] Step 6: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
+- [ ] Step 7: 暂停,展示 git diff 给用户审查
+- [ ] Step 8: 提交 commit `feat(agent): queue ops + custom messages demo`
 
 ---
 
@@ -619,6 +874,15 @@ npx tsx examples/08-custom-messages.ts
 - 流程图(纯文本,ASCII)
 - 已知限制(从 spec 沿用)
 
+**review checklist**(每篇文档必须过):
+- [ ] 中文流畅,无错别字
+- [ ] 所有类型签名与代码一致(签名拼写、参数顺序、返回类型)
+- [ ] 所有流程图与实现一致(分支、判断、顺序)
+- [ ] 关键概念表格覆盖所有 public API
+- [ ] 已知限制从 spec 沿用,不遗漏
+- [ ] 文档结构统一(5 个章节齐全)
+- [ ] 文件路径引用正确(以 `file:///` 协议)
+
 **验证**:
 - 通读每篇,确保中文流畅、无错别字
 - 所有类型签名与代码一致
@@ -629,7 +893,9 @@ npx tsx examples/08-custom-messages.ts
 - [ ] Step 3: 写 `docs/session.md`
 - [ ] Step 4: 写 `docs/compaction.md`
 - [ ] Step 5: 写 `docs/skills-and-templates.md`
-- [ ] Step 6: 提交 commit `docs(agent): 5 篇中文文档`
+- [ ] Step 6: 用 review checklist 自检每篇
+- [ ] Step 7: 暂停,展示 git diff 给用户审查
+- [ ] Step 8: 提交 commit `docs(agent): 5 篇中文文档`
 
 ---
 
@@ -637,13 +903,13 @@ npx tsx examples/08-custom-messages.ts
 
 **目标**: 全量测试 + 全量 examples 跑通,验证整个 `@mimi/agent` 包就绪。
 
-**验证清单**:
+**验证清单**(全部必须通过才算 Phase 02 完成):
 ```bash
 # 单元测试
 cd packages/agent && pnpm test
-# 预期: 50+ tests pass
+# 预期: ≥ 50 tests pass,0 fail
 
-# 全量 examples
+# 全量 examples(全部用 mock provider 跑,不需要真实 API key)
 cd packages/agent && npx tsx examples/01-basic.ts
 cd packages/agent && npx tsx examples/02-tools.ts
 cd packages/agent && npx tsx examples/03-session.ts
@@ -652,7 +918,7 @@ cd packages/agent && npx tsx examples/05-skills.ts
 cd packages/agent && npx tsx examples/06-prompt-templates.ts
 cd packages/agent && npx tsx examples/07-hooks.ts
 cd packages/agent && npx tsx examples/08-custom-messages.ts
-# 预期: 全部正常退出
+# 预期: 8 个全部正常退出,0 error
 
 # 类型检查
 cd packages/agent && pnpm tsc --noEmit
@@ -661,6 +927,10 @@ cd packages/agent && pnpm tsc --noEmit
 # 与 AI 层集成
 cd packages/agent && pnpm build
 # 预期: dist/ 生成,无 warning
+
+# 行数扫描(自动检查所有新文件 < 500)
+cd packages/agent && pnpm run check:line-count
+# 预期: 全部文件 < 500 软上限(超 500 需用户已确认)
 ```
 
 **Phase 02 收尾**:
@@ -685,13 +955,13 @@ cd packages/agent && pnpm build
 | 1 | 包骨架 + types | 0.5h |
 | 2 | agent-loop 核心 | 2-3h(792 行翻译) |
 | 3 | harness skeleton + messages + system-prompt | 2-3h |
-| 4 | 钩子系统 | 2-3h(17 个事件) |
-| 5 | session + env | 3-4h(双后端 + 5 文件) |
-| 6 | compaction | 2-3h(三件套) |
-| 7 | skills + templates | 1-2h |
-| 8 | 队列 + 自定义消息 | 1-2h |
-| 9 | 5 篇文档 | 2-3h |
+| 4 | 钩子系统 | 1.5-2.5h(**8 个核心事件 + 9 个预声明,合并 semantics/dispatch/cleanup**)|
+| 5 | session + env | 3-4h(双后端 + 5 文件,fork 合并入 session) |
+| 6 | compaction | 1.5-2.5h(三件套,但 file-ops 内联、should-compact 取消) |
+| 7 | skills + templates | 1-2h(parse+load 合并) |
+| 8 | 队列 + 自定义消息 | 1-1.5h(3 队列合并为 1 个 queue.ts) |
+| 9 | 5 篇文档 | 2-3h(加 review checklist) |
 | 10 | 全量验证 | 1h |
-| **合计** | | **~17-25h** |
+| **合计** | | **~16-22h**(比原估算略减,因部分文件合并) |
 
 **注意**:这只是"实现 + 测试"的估算。Debug、跨任务修正、依赖 pi 行为差异的适配,可能再 +30-50%。

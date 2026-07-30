@@ -13,6 +13,9 @@ export { createModels } from "./provider/index.js";
 export type { Provider, Models } from "./provider/index.js";
 export { ModelsError } from "./provider/index.js";
 
+// 错误分类（agent 层重试依赖）
+export { isRetryableAssistantError } from "./utils/retry.js";
+
 // 事件流
 export { EventStream, AssistantMessageEventStream } from "./stream/index.js";
 
