@@ -156,13 +156,15 @@ my-mimipi/                  # ✅ Phase 01 完成
       06-tool-use.ts          ✅  工具调用
       07-multi-turn.ts        ✅  多轮对话
 
-    agent/                  # 第二期（后面再做）
-    coding-agent/           # 第三期（后面再做）
+    agent/                  # 第二期(本批次)
+    coding-agent/           # 第三期(本批次,极简版起步)
 
   docs/
     my-minipi-spec.md
     superpowers/specs/2026-07-29-phase01-ai-core-design.md
     superpowers/specs/2026-07-29-openai-decompose-design.md
+    superpowers/specs/2026-07-30-phase02-agent-design.md
+    superpowers/specs/2026-07-30-phase02.5-coding-agent-design.md
     superpowers/plans/2026-07-29-phase01-ai-core-plan.md
     superpowers/plans/2026-07-29-openai-decompose-plan.md
     project-log/phase-01-ai-core/log.md

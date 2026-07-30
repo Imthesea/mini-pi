@@ -1,0 +1,26 @@
+{
+  "name": "@mimi/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run && tsc --noEmit",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@mimi/ai": "workspace:*",
+    "typebox": "1.1.38"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0",
+    "tsx": "^4.22.0",
+    "vitest": "^2.0.0"
+  }
+}
