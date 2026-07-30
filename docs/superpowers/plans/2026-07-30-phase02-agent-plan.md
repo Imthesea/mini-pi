@@ -189,19 +189,19 @@ npx tsx examples/01-basic.ts
 # 预期:看到流式输出,正常结束
 ```
 
-- [ ] Step 1: 写 `__tests__/agent-loop.test.ts` 全部 case,跑挂
-- [ ] Step 2: 写 `src/loop/tool-execution/types.ts`(内部类型先定义,后续依赖)
-- [ ] Step 3: 写 `src/loop/helpers.ts` + `src/loop/tool-validation.ts`(纯函数,无依赖)
-- [ ] Step 4: 写 `src/loop/tool-execution/{prepare,execute,finalize,truncate}.ts`(工具执行流水线)
-- [ ] Step 5: 写 `src/loop/tool-execution/{sequential,parallel}.ts`(调度模式)
-- [ ] Step 6: 写 `src/loop/tool-execution.ts`(路由入口)
-- [ ] Step 7: 写 `src/loop/stream-assistant.ts`(流式响应 + 重试)
-- [ ] Step 8: 写 `src/agent-loop.ts`(公共 API + runLoop 编排,只做编排不重复实现)
-- [ ] Step 9: 跑测试变绿
-- [ ] Step 10: 写 `examples/01-basic.ts` 跑通
-- [ ] Step 11: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
-- [ ] Step 12: 暂停,展示 git diff 给用户审查
-- [ ] Step 13: 提交 commit `feat(agent): core agent loop`
+- [x] Step 1: 写 `__tests__/agent-loop.test.ts` 全部 case,跑挂
+- [x] Step 2: 写 `src/loop/tool-execution/types.ts`(内部类型先定义,后续依赖)
+- [x] Step 3: 写 `src/loop/helpers.ts` + `src/loop/tool-validation.ts`(纯函数,无依赖)
+- [x] Step 4: 写 `src/loop/tool-execution/{prepare,execute,finalize,truncate}.ts`(工具执行流水线)
+- [x] Step 5: 写 `src/loop/tool-execution/{sequential,parallel}.ts`(调度模式)
+- [x] Step 6: 写 `src/loop/tool-execution.ts`(路由入口)
+- [x] Step 7: 写 `src/loop/stream-assistant.ts`(流式响应 + 重试)
+- [x] Step 8: 写 `src/agent-loop.ts`(公共 API + runLoop 编排,只做编排不重复实现)
+- [x] Step 9: 跑测试变绿
+- [x] Step 10: 写 `examples/01-basic.ts` 跑通
+- [x] Step 11: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
+- [x] Step 12: 暂停,展示 git diff 给用户审查
+- [x] Step 13: 提交 commit `feat(agent): core agent loop`(commit `9f6be26`)
 
 ---
 
@@ -306,17 +306,17 @@ packages/agent/__tests__/harness/
 cd packages/agent && pnpm test harness
 ```
 
-- [ ] Step 1: 写 `harness/types/{harness,events,options}.test.ts` + 跑挂(RED)→ 写 `harness/types/{harness,events,options}.ts` → 跑绿
-- [ ] Step 2: 写 `harness/messages/{convert,assistant,custom}.test.ts` + 跑挂 → 写 `harness/messages/{convert,assistant,custom}.ts` → 跑绿
-- [ ] Step 3: 写 `harness/system-prompt/{build,parts}.test.ts` + 跑挂 → 写 `harness/system-prompt/{build,parts}.ts` → 跑绿
-- [ ] Step 4: 写 `harness/phase.test.ts` + 跑挂 → 写 `harness/phase.ts` → 跑绿
-- [ ] Step 5: 写 `agent-harness/agent-harness.test.ts` + 跑挂 -> 写 agent-harness.ts + event-bus.ts + helpers.ts(标准 class + 独立拆分) -> 跑绿
-- [ ] Step 6: 写 `harness/agent-harness/config.test.ts` + `harness/agent-harness/prompt.test.ts` + 跑挂 -> 跑绿(测试独立,实现已在 Step 5)
-- [ ] Step 7: (已合并到 Step 5,不再单独拆 prompt.ts)
-- [ ] Step 8: 更新 `examples/01-basic.ts` 用 harness 启动(替换直接调 agent-loop)
-- [ ] Step 9: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
-- [ ] Step 10: 暂停,展示 git diff 给用户审查
-- [ ] Step 11: 提交 commit `feat(agent): harness skeleton + messages + system-prompt`
+- [x] Step 1: 写 `harness/types/{harness,events,options}.test.ts` + 跑挂(RED)→ 写 `harness/types/{harness,events,options}.ts` → 跑绿
+- [x] Step 2: 写 `harness/messages/{convert,assistant,custom}.test.ts` + 跑挂 → 写 `harness/messages/{convert,assistant,custom}.ts` → 跑绿
+- [x] Step 3: 写 `harness/system-prompt/{build,parts}.test.ts` + 跑挂 → 写 `harness/system-prompt/{build,parts}.ts` → 跑绿
+- [x] Step 4: 写 `harness/phase.test.ts` + 跑挂 → 写 `harness/phase.ts` → 跑绿
+- [x] Step 5: 写 `agent-harness/agent-harness.test.ts` + 跑挂 -> 写 agent-harness.ts + event-bus.ts + helpers.ts(标准 class + 独立拆分) -> 跑绿
+- [x] Step 6: 写 `harness/agent-harness/config.test.ts` + `harness/agent-harness/prompt.test.ts` + 跑挂 -> 跑绿(测试独立,实现已在 Step 5)
+- [x] Step 7: (已合并到 Step 5,不再单独拆 prompt.ts)
+- [x] Step 8: 更新 `examples/01-basic.ts` 用 harness 启动(替换直接调 agent-loop)
+- [x] Step 9: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
+- [x] Step 10: 暂停,展示 git diff 给用户审查
+- [x] Step 11: 提交 commit `feat(agent): harness skeleton + messages + system-prompt`(commit `736d060`,含 Task 3.5 TD-001 清理)
 
 **Task 3 已知遗留(Tech Debt)**:
 
@@ -469,17 +469,55 @@ cd packages/agent && pnpm test hooks
 npx tsx examples/07-hooks.ts
 ```
 
-- [ ] Step 1: 写 `hooks/{default-hooks,semantics,types}.test.ts` 全部 case,跑挂(RED)
-- [ ] Step 2: 写 `hooks/types.ts` `HookEvent` 泛型 + 8 个核心事件 + 9 个预声明事件
-- [ ] Step 3: 写 `hooks/semantics.ts` 5 个语义纯函数
-- [ ] Step 4: 写 `hooks/default-hooks-state.ts` 三个 Map 封装
-- [ ] Step 5: 写 `hooks/default-hooks.ts` 主类(observe / on / emit / addCleanup / clear / dispose),把 dispatch / cleanup 逻辑合并到主类
-- [ ] Step 6: 跑测试变绿(GREEN)
-- [ ] Step 7: 把 hooks 接入 `agent-harness.ts`(在 phase 转换、turn 执行、tool 调用等关键点 emit 8 个核心事件)
-- [ ] Step 8: 写 `examples/07-hooks.ts` 跑通
-- [ ] Step 9: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
-- [ ] Step 10: 暂停,展示 git diff 给用户审查
-- [ ] Step 11: 提交 commit `feat(agent): hooks system (8 core events + 9 pre-declared)`
+- [x] Step 1: 写 `hooks/{default-hooks,semantics,types}.test.ts` 全部 case,跑挂(RED)
+- [x] Step 2: 写 `hooks/types.ts` `HookEvent` 泛型 + 8 个核心事件 + 9 个预声明事件
+- [x] Step 3: 写 `hooks/semantics.ts` 5 个语义纯函数
+- [x] Step 4: 写 `hooks/default-hooks-state.ts` 三个 Map 封装
+- [x] Step 5: 写 `hooks/default-hooks.ts` 主类(observe / on / emit / addCleanup / clear / dispose),把 dispatch / cleanup 逻辑合并到主类
+- [x] Step 6: 跑测试变绿(GREEN)
+- [x] Step 7: 把 hooks 接入 `agent-harness.ts`(在 phase 转换、turn 执行、tool 调用等关键点 emit 8 个核心事件)
+- [x] Step 8: 写 `examples/07-hooks.ts` 跑通
+- [x] Step 9: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
+- [x] Step 10: 暂停,展示 git diff 给用户审查
+- [ ] Step 11: 提交 commit `feat(agent): hooks system (8 core events + 9 pre-declared)`(等用户确认 diff 后提交)
+
+**Task 4 完成备注**(2026-07-31):
+- **新增 7 个文件**:
+  - `src/harness/hooks/types.ts` (296 行) — 17 个事件类型(8 核心 + 9 预声明)+ `AgentHarnessHookContext` 等公共联合类型
+  - `src/harness/hooks/semantics.ts` (265 行) — 5 个语义纯函数(链式转换 / 遇 block 退出 / 累积补丁 / 遇 cancel 退出 / fire-and-forget)
+  - `src/harness/hooks/default-hooks-state.ts` (195 行) — 内部状态封装(handlers / observers / cleanups 三个 Map)
+  - `src/harness/hooks/default-hooks.ts` (257 行) — `DefaultAgentHarnessHooks` 主类(dispatch + cleanup 与公共 API 紧密耦合,合在一文件)
+  - `src/harness/hooks/index.ts` (72 行) — 模块公共 API re-export
+  - `src/harness/agent-harness/hooks-bridge.ts` (118 行) — 钩子系统 ↔ `AgentLoopConfig` 桥接(`beforeToolCall` / `afterToolCall` 包装)
+  - `examples/07-hooks.ts` (370 行) — 演示:tool_call block + context 注入 + observer
+- **新增 3 个测试文件**:
+  - `__tests__/harness/hooks/types.test.ts` (25 tests) — 8 核心 + 9 预声明事件类型 + 公共联合
+  - `__tests__/harness/hooks/semantics.test.ts` (29 tests) — 5 个语义函数行为
+  - `__tests__/harness/hooks/default-hooks.test.ts` (33 tests) — 主类行为(注册/移除/clear/dispose/cleanup/emit)
+- **修改 3 个文件**:
+  - `src/harness/agent-harness/agent-harness.ts` — 386 → 447 行(+61),增量:
+    - 构造时初始化 `DefaultAgentHarnessHooks`
+    - 暴露 `getHooks()` 公共 API
+    - `prompt()` 入口 emit `before_agent_start`(handler 可改 messages / systemPrompt)
+    - `#executeTurn` 调 `runAgentLoop` 前 emit `context`(链式改 messages)
+    - runAgentLoop emit sink 中 `message_end` 时 emit `message_end` 钩子
+    - `setModel()` 末尾 emit `model_update`
+    - `abort()` 末尾 emit `abort`
+    - `tool_call` / `tool_result` 通过 `hooks-bridge.ts` 包装 `AgentLoopConfig.beforeToolCall` / `afterToolCall`
+  - `src/harness/index.ts` — re-export 钩子类型(28 个名字)
+  - `src/index.ts` — 顶层 re-export 钩子类型(26 个名字)
+- **拆分原则执行**:按"独立类型/独立概念"拆分(优先级 1 & 2),不按"类的方法"拆:
+  - 优先级 1:`default-hooks-state.ts` 是独立类(状态管理),`hooks-bridge.ts` 是独立概念(bridge)
+  - 优先级 2:`semantics.ts` 5 个语义纯函数合在一个文件(避免"为对称而拆"5 个文件)
+  - `default-hooks.ts` 主类 = 公共 API + dispatch + cleanup,紧密耦合不分离
+- **行数检查**:全部 < 500(最大 `agent-harness.ts` 447 行,其中 37 行注释,代码行 410)
+- **验证**:
+  - `pnpm test`:218 tests pass(vitest 17 文件全绿,`tsc -p tsconfig.test.json` 0 错误)
+  - `examples/07-hooks.ts` 跑通:3 个 hook 全部触发,tool_call block 成功
+  - `examples/01-basic.ts` 未回归
+- **遗留 / 后续**:
+  - 钩子 ctx 的 `session` / `models` facade 在本 Task 阶段传空对象(不依赖内部数据),Task 5 session 接入后填充
+  - 9 个预声明事件(`before_provider_request` 等)类型已声明,本 Task 不 emit,留作未来扩展
 
 ---
 
