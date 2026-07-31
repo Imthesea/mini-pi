@@ -13,7 +13,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DefaultAgentHarnessHooks } from "../../../src/harness/hooks/default-hooks.js";
-import type { AgentHarnessHookContext } from "../../../src/harness/hooks/types.js";
+import type { AgentHarnessHookContext, ToolCallHookEvent } from "../../../src/harness/hooks/types.js";
 
 // ── 通用 helper ──
 
@@ -23,6 +23,26 @@ const TEST_CTX: AgentHarnessHookContext = {
   models: {} as any,
   messages: [],
 };
+
+/** 构造 tool_call 测试事件(handler 测试不读字段,只需通过类型) */
+function makeToolCallEvent(): ToolCallHookEvent {
+  return {
+    type: "tool_call",
+    toolCall: { type: "toolCall", id: "t1", name: "read", arguments: {} },
+    args: {},
+    context: { messages: [], tools: [], systemPrompt: "", abortSignal: new AbortController().signal } as any,
+    assistantMessage: {
+      role: "assistant",
+      content: [{ type: "text", text: "ok" }],
+      api: "anthropic-messages",
+      provider: "anthropic",
+      model: "claude",
+      usage: { input: 0, output: 0, totalTokens: 0, cost: { input: 0, output: 0, total: 0 } },
+      stopReason: "stop",
+      timestamp: 0,
+    },
+  };
+}
 
 describe("DefaultAgentHarnessHooks — 构造与基本 API", () => {
   it("可构造并保留初始 context", () => {
@@ -143,7 +163,7 @@ describe("DefaultAgentHarnessHooks — observe / on 订阅", () => {
     expect(contextHandler).toHaveBeenCalledTimes(1);
     expect(toolCallHandler).not.toHaveBeenCalled();
 
-    await hooks.emit({ type: "tool_call" });
+    await hooks.emit(makeToolCallEvent());
     expect(contextHandler).toHaveBeenCalledTimes(1);
     expect(toolCallHandler).toHaveBeenCalledTimes(1);
   });
@@ -227,7 +247,7 @@ describe("DefaultAgentHarnessHooks — emit 路由(各事件 → 对应 semantic
     hooks.on("tool_call", h2);
     hooks.on("tool_call", h3);
 
-    const result = await hooks.emit({ type: "tool_call" });
+    const result = await hooks.emit(makeToolCallEvent());
     expect(h1).toHaveBeenCalledTimes(1);
     expect(h2).toHaveBeenCalledTimes(1);
     expect(h3).not.toHaveBeenCalled();
@@ -475,7 +495,7 @@ describe("DefaultAgentHarnessHooks — 边界场景", () => {
     expect(ctxHandler).toHaveBeenCalledTimes(1);
     expect(toolHandler).not.toHaveBeenCalled();
 
-    await hooks.emit({ type: "tool_call" });
+    await hooks.emit(makeToolCallEvent());
     expect(ctxHandler).toHaveBeenCalledTimes(1);
     expect(toolHandler).toHaveBeenCalledTimes(1);
   });

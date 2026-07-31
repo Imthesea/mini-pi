@@ -183,4 +183,27 @@ export {
   toFileSystemError,
   toExecutionError,
   getResultOrThrow,
+  // 压缩(Task 6 新增)
+  // 主入口
+  compact,
+  generateBranchSummary,
+  collectEntriesForBranchSummary,
+  // 工具
+  estimateTokens,
+  prepareCompaction,
+  extractFileOpsFromMessage,
+  // 设置
+  DEFAULT_COMPACTION_SETTINGS,
+  shouldCompact,
+  // 类型
+  type CompactionSettings,
+  type CompactOptions,
+  type CompactionPreparation,
+  type CompactionResult,
+  type CompactionDetails,
+  type BranchSummaryOptions,
+  type BranchSummaryResult,
+  type BranchSummaryDetails,
+  type TokenEstimationInput,
+  type KeptEntries,
 } from "./harness/index.js";

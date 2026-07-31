@@ -27,20 +27,18 @@
  * | message_end         | runAgentLoop emit sink(message_end 时)   |
  * | model_update        | setModel() 末尾                          |
  * | abort               | abort() 末尾                             |
- * | session_before_compact | (Task 6 接入,本 Task 不 emit)         |
+ * | session_before_compact | compact() 入口                       |
+ * | session_compact     | compact() 完成                           |
+ * | session_before_tree | navigateTree() 入口                      |
+ * | session_tree        | navigateTree() 完成                      |
  */
 
 import type { Model } from "@mimi/ai";
 import type {
-  AgentContext,
-  AgentLoopConfig,
   AgentMessage,
   AgentTool,
   ThinkingLevel,
 } from "../../types.js";
-import { runAgentLoop } from "../../agent-loop.js";
-import { convertToLlm } from "../messages/convert.js";
-import { buildSystemPrompt } from "../system-prompt/index.js";
 import { assertPhase } from "../phase.js";
 import { AgentHarnessError, HarnessConfigError } from "../errors.js";
 import type { AgentHarnessPhase } from "../phase.js";
@@ -57,9 +55,17 @@ import type {
 } from "../hooks/index.js";
 import { EventBus } from "./event-bus.js";
 import type { Subscription } from "./event-bus.js";
-import { buildUserContent, extractSessionId } from "./helpers.js";
-import { bridgeAfterToolCall, bridgeBeforeToolCall } from "./hooks-bridge.js";
+import { createSubscription } from "./subscription-factory.js";
 import type { Session } from "../session/session.js";
+import {
+  runCompactOp,
+  runNavigateTreeOp,
+} from "./compaction-ops.js";
+import { executeTurn } from "./turn-execution.js";
+import {
+  buildHookContext,
+  loadSessionMessages,
+} from "./hook-context-builder.js";
 
 // ── AgentHarness 主类 ──
 
@@ -132,39 +138,20 @@ export class AgentHarness {
   /** 构造钩子系统需要的 context(由 setContext 同步更新) */
   #buildHookContext(): AgentHarnessHookContext {
     const session = this.#options.session as Session<any> | undefined;
-    return {
+    return buildHookContext({
       harness: this,
-      // session facade:Task 5 接入后填充真正的 session 引用
-      // 提供 getId / getMessages(handler 用 facade 拿数据,不必直接 import Session)
-      // getId 返回 Promise<id>:因为 Session.getMetadata() 是 async
-      session: session
-        ? {
-            getId: () =>
-              session
-                .getMetadata()
-                .then((m) => m.id)
-                .catch(() => "unknown"),
-            getMessages: () => this.#loadSessionMessages(session),
-          }
-        : {},
-      // models facade:Task 后续接入后填充
-      models: {},
-      // messages:从 session 加载历史消息(handler 可读)
-      messages: [],
-    };
+      session,
+      loadSessionMessages: (s) => this.#loadSessionMessages(s),
+    });
   }
 
   /**
    * 从 session 加载历史消息(给 hook context 用)。
    * 内部方法:供 #buildHookContext 调用,避免每次 hook emit 时全量加载。
+   * 实现委托给 hook-context-builder.ts 的 loadSessionMessages 纯函数。
    */
   async #loadSessionMessages(session: Session<any>): Promise<AgentMessage[]> {
-    try {
-      const context = await session.buildContext();
-      return context.messages;
-    } catch {
-      return [];
-    }
+    return loadSessionMessages(session);
   }
 
   /**
@@ -213,62 +200,11 @@ export class AgentHarness {
    * 返回的 Subscription 可用 for await 迭代事件,
    * 或调 cancel() 取消订阅。
    * 多个订阅者之间互不影响。
+   *
+   * 实现细节见 subscription-factory.ts(纯函数,逻辑在那里)。
    */
   subscribe(): Subscription {
-    const queue: AgentHarnessEvent[] = [];
-    let resolveNext: ((event: AgentHarnessEvent | null) => void) | null = null;
-    let cancelled = false;
-
-    const unsubscribe = this.#eventBus.subscribe((event) => {
-      if (cancelled) return;
-      if (resolveNext) {
-        const r = resolveNext;
-        resolveNext = null;
-        r(event);
-      } else {
-        queue.push(event);
-      }
-    });
-
-    return {
-      [Symbol.asyncIterator](): AsyncIterator<AgentHarnessEvent> {
-        return {
-          next: async (): Promise<IteratorResult<AgentHarnessEvent>> => {
-            if (cancelled) {
-              return { value: undefined, done: true };
-            }
-            const next = queue.shift();
-            if (next) {
-              return { value: next, done: false };
-            }
-            return new Promise((resolve) => {
-              resolveNext = (event) => {
-                if (event === null) {
-                  resolve({ value: undefined, done: true });
-                } else {
-                  resolve({ value: event, done: false });
-                }
-              };
-            });
-          },
-          return: async (): Promise<IteratorResult<AgentHarnessEvent>> => {
-            cancelled = true;
-            unsubscribe();
-            return { value: undefined, done: true };
-          },
-        };
-      },
-      cancel: () => {
-        cancelled = true;
-        unsubscribe();
-        // 关键:resolve pending 的 for await,否则 cancel 后 for await 永远挂起
-        if (resolveNext) {
-          const r = resolveNext;
-          resolveNext = null;
-          r(null);
-        }
-      },
-    };
+    return createSubscription(this.#eventBus);
   }
 
   // ── 中止 ──
@@ -427,7 +363,7 @@ export class AgentHarness {
   }
 
   /**
-   * 单次 turn 的实际执行(私有)。
+   * 单次 turn 的实际执行(私有,委托给 turn-execution.ts)。
    *
    * @param text              user 输入文本
    * @param options           可选 images
@@ -438,92 +374,89 @@ export class AgentHarness {
     options?: { images?: Array<{ data: string; mimeType: string }> },
     startHookResult?: { messages?: AgentMessage[]; systemPrompt?: string },
   ): Promise<AgentMessage[]> {
-    const runtime = this.#runtime;
     const session = this.#options.session as Session<any> | undefined;
+    return executeTurn(
+      {
+        runtime: this.#runtime,
+        hooks: this.#hooks,
+        session,
+        streamFn: this.#options.streamFn,
+        syncHookContext: () => this._syncHookContext(),
+        emit: (event) => this.#emit(event),
+      },
+      text,
+      options,
+      startHookResult,
+    );
+  }
 
-    // 构造 user 消息
-    const userMessage: AgentMessage = {
-      role: "user",
-      content: buildUserContent(text, options?.images),
-      timestamp: Date.now(),
-    };
+  // ── 业务方法:compact() + navigateTree() ──
 
-    // ── 同步钩子 context(让 context 事件 handler 看到最新 session) ──
-    this._syncHookContext();
+  /**
+   * 手动触发压缩。
+   *
+   * 流程(实现细节见 compaction-ops.ts):
+   * 1. 断言 phase === "idle",切到 "compaction"
+   * 2. 委托 `runCompactOp` 处理钩子 + LLM + 写 session
+   * 3. phase 回 idle(try/finally)
+   *
+   * @returns 压缩生成的 summary(若 cancel 或 session 缺失则返回 undefined)
+   */
+  async compact(): Promise<string | undefined> {
+    this.#assertNotDisposed();
+    assertPhase(this.getPhase(), "idle", "compact");
+    this._setPhase("compaction");
 
-    // ── Session 写入:append user message(Task 5 接入) ──
-    // fire-and-forget 不阻塞 turn;失败也不抛(session 写失败不阻塞对话)
-    if (session) {
-      void session.appendMessage(userMessage).catch((err) => {
-        // session 写入失败只记日志(不阻塞 turn)
-        console.error("[AgentHarness] session.appendMessage failed:", err);
-      });
-    }
-
-    // 构造 system prompt(静态字符串或动态 provider)
-    // 优先用 before_agent_start hook 注入的 systemPrompt,否则用 runtime 默认
-    const baseSystemPrompt =
-      startHookResult?.systemPrompt ?? runtime.systemPrompt;
-    const systemPromptResult = buildSystemPrompt(baseSystemPrompt, {
-      model: runtime.model,
-      tools: runtime.tools,
-      sessionId: extractSessionId(session),
-      resources: runtime.resources,
-    });
-    const systemPrompt =
-      typeof systemPromptResult === "string"
-        ? systemPromptResult
-        : await systemPromptResult;
-
-    // 构造 AgentContext
-    // 初始 messages:用 before_agent_start 注入的,否则用 [userMessage]
-    const initialMessages: AgentMessage[] = startHookResult?.messages ?? [
-      userMessage,
-    ];
-
-    // 构造 AgentContext
-    const context: AgentContext = {
-      systemPrompt,
-      messages: initialMessages,
-      tools: runtime.tools,
-    };
-
-    // emit context 事件(handler 可链式改 messages)
-    const contextResult = (await this.#hooks.emit({ type: "context" })) as
-      | { messages?: AgentMessage[] }
-      | undefined;
-    if (contextResult?.messages !== undefined) {
-      context.messages = contextResult.messages;
-    }
-
-    // 构造 AgentLoopConfig
-    const config: AgentLoopConfig = {
-      model: runtime.model,
-      convertToLlm,
-      streamFn: this.#options.streamFn,
-      toolExecution: "parallel",
-      // 桥接:tool_call / tool_result 事件走钩子系统
-      beforeToolCall: bridgeBeforeToolCall(this.#hooks),
-      afterToolCall: bridgeAfterToolCall(this.#hooks),
-    };
-
-    // 调 runAgentLoop,转发事件到 EventBus
-    // message_end 事件时:
-    // 1. emit 钩子系统的 message_end
-    // 2. 异步 append assistant / toolResult message 到 session
-    return await runAgentLoop(initialMessages, context, config, async (event) => {
-      if (event.type === "message_end") {
-        // fire-and-forget,不阻塞事件转发
-        void this.#hooks.emit({ type: "message_end" });
-        // session 写入:append 当前结束的 message
-        if (session) {
-          void session.appendMessage(event.message).catch((err) => {
-            console.error("[AgentHarness] session.appendMessage failed:", err);
-          });
-        }
+    try {
+      const session = this.#options.session as Session<any> | undefined;
+      if (!session) {
+        return undefined;
       }
-      await this.#emit(event);
-    });
+      const result = await runCompactOp({
+        session,
+        model: this.#runtime.model,
+        hooks: this.#hooks,
+        streamFn: this.#options.streamFn,
+      });
+      return result?.summary;
+    } finally {
+      this._setPhase("idle");
+    }
+  }
+
+  /**
+   * 切换 leaf 到指定 entry,生成"被丢弃"分支的 summary(走 navigateTree 流程)。
+   *
+   * 流程(实现细节见 compaction-ops.ts):
+   * 1. 断言 phase === "idle",切到 "branch_summary"
+   * 2. 委托 `runNavigateTreeOp` 处理钩子 + LLM + 切 leaf
+   * 3. phase 回 idle(try/finally)
+   *
+   * @param options.targetId  目标 entry id(null = 切到空)
+   * @returns                  若写了 BranchSummaryEntry 则返回其 id,否则 undefined
+   */
+  async navigateTree(options: {
+    targetId: string | null;
+  }): Promise<string | undefined> {
+    this.#assertNotDisposed();
+    assertPhase(this.getPhase(), "idle", "navigateTree");
+    this._setPhase("branch_summary");
+
+    try {
+      const session = this.#options.session as Session<any> | undefined;
+      if (!session) {
+        return undefined;
+      }
+      return await runNavigateTreeOp({
+        session,
+        model: this.#runtime.model,
+        hooks: this.#hooks,
+        streamFn: this.#options.streamFn,
+        targetId: options.targetId,
+      });
+    } finally {
+      this._setPhase("idle");
+    }
   }
 
   // ── 内部方法 ──
