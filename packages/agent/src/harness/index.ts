@@ -7,7 +7,8 @@
  */
 
 // ── 主类(包含 config / prompt / subscribe 等全部方法) ──
-export { AgentHarness, isAgentHarness } from "./agent-harness/agent-harness.js";
+export { AgentHarness } from "./agent-harness/agent-harness.js";
+export { isAgentHarness } from "./agent-harness/is-agent-harness.js";
 export type { Subscription } from "./agent-harness/event-bus.js";
 
 // ── Phase ──
@@ -197,3 +198,31 @@ export {
   type TokenEstimationInput,
   type KeptEntries,
 } from "./compaction/index.js";
+
+// ── Skills(Task 7 新增) ──
+//
+// format / parse / load + Skill / SkillArgs 类型。
+// harness.skill(name, args) 走 prompt,见 agent-harness.ts。
+export {
+  // 格式
+  formatSkillsForSystemPrompt,
+  formatSkillInvocation,
+  // 解析 + 加载
+  parseSkillContent,
+  loadSkillFromFile,
+  // 错误
+  SkillParseError,
+  // 类型
+  type SkillFrontmatter,
+  type ParsedSkill,
+  type SkillArgs,
+} from "./skills/index.js";
+
+// ── Prompt Templates(Task 7 新增) ──
+//
+// formatPromptTemplateInvocation + PromptTemplate 类型。
+// harness.promptFromTemplate(name, args) 走 prompt,见 agent-harness.ts。
+export {
+  formatPromptTemplateInvocation,
+  type PromptTemplateArgs,
+} from "./prompt-templates/index.js";

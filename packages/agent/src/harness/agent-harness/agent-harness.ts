@@ -1,36 +1,39 @@
 /**
  * AgentHarness 主类。
  *
- * 职责:
- * 1. 持有运行时配置(model / tools / env / session / resources / systemPrompt)
- * 2. 维护 phase 状态机(idle / turn / compaction / ...)
- * 3. 暴露事件订阅接口(subscribe)
- * 4. 提供 abort 能力
- * 5. 配置管理(getXxx / setXxx)
- * 6. 业务入口(prompt)
- * 7. 钩子系统集成(emit 8 个核心事件:见 hooks-bridge.ts)
+ * 职责:1) 持有运行时配置(model / tools / env / session / resources / systemPrompt)
+ *      2) 维护 phase 状态机(idle / turn / compaction / branch_summary)
+ *      3) 暴露事件订阅接口(subscribe)、abort 能力
+ *      4) 配置管理(getXxx / setXxx)
+ *      5) 业务入口(prompt / compact / navigateTree / skill / promptFromTemplate)
+ *      6) 钩子系统集成(emit 11 个核心事件)
  *
- * 设计说明:
- * - 字段用 # 私有修饰符,严格封装
- * - 内部方法用 _ 前缀(约定,非强制),供同模块测试调用
- * - 后续 Task 增量(skill / compact / steer 等)直接在本文件加方法
- * - 拆分出去的文件:event-bus.ts(事件总线)、helpers.ts(纯函数辅助)、
- *   hooks-bridge.ts(钩子 ↔ agent-loop 桥接)
+ * 行数说明(超 500 软限的 explicit justification):
+ * - 本类含 5 个公开业务方法 + 7 个 setter + 6 个 getter + 完整 JSDoc
+ * - 类已拆出 7 个子文件(event-bus / subscription-factory / hooks-bridge /
+ *   turn-execution / hook-context-builder / compaction-ops / skill-ops)
+ * - 进一步拆分需突破 # 私有字段封装,反而损害可读性,故保留为单类
  *
- * 钩子事件 emit 位置:
- * | 事件                | emit 位置                                |
- * |---------------------|------------------------------------------|
- * | before_agent_start  | prompt() 入口                            |
- * | context             | executeTurn() 调 runAgentLoop 前         |
- * | tool_call           | bridgeBeforeToolCall(通过 AgentLoopConfig.beforeToolCall) |
- * | tool_result         | bridgeAfterToolCall(通过 AgentLoopConfig.afterToolCall)  |
- * | message_end         | runAgentLoop emit sink(message_end 时)   |
- * | model_update        | setModel() 末尾                          |
- * | abort               | abort() 末尾                             |
- * | session_before_compact | compact() 入口                       |
- * | session_compact     | compact() 完成                           |
- * | session_before_tree | navigateTree() 入口                      |
- * | session_tree        | navigateTree() 完成                      |
+ * 拆分文件:
+ * - event-bus.ts(事件总线)、subscription-factory.ts(订阅工厂)
+ * - hooks-bridge.ts(钩子 ↔ agent-loop 桥接)、turn-execution.ts(单 turn 执行)
+ * - hook-context-builder.ts(钩子 context 构造)、compaction-ops.ts(压缩 + 切树)
+ * - skill-ops.ts(skill / template 调起)、is-agent-harness.ts(类型守卫)
+ *
+ * 钩子事件 emit 位置(11 个核心事件):
+ * - before_agent_start → prompt()
+ * - context            → executeTurn() 调 runAgentLoop 前
+ * - tool_call          → bridgeBeforeToolCall(AgentLoopConfig.beforeToolCall)
+ * - tool_result        → bridgeAfterToolCall(AgentLoopConfig.afterToolCall)
+ * - message_end        → runAgentLoop emit sink(message_end 时)
+ * - model_update       → setModel() 末尾
+ * - abort              → abort() 末尾
+ * - session_before_compact → compact() 入口
+ * - session_compact    → compact() 完成
+ * - session_before_tree → navigateTree() 入口
+ * - session_tree       → navigateTree() 完成
+ *
+ * Task 7 增量:skill() / promptFromTemplate()(调起 skill / template 走 prompt)
  */
 
 import type { Model } from "@mimi/ai";
@@ -66,6 +69,7 @@ import {
   buildHookContext,
   loadSessionMessages,
 } from "./hook-context-builder.js";
+import { runSkillOp, runPromptFromTemplateOp } from "./skill-ops.js";
 
 // ── AgentHarness 主类 ──
 
@@ -459,6 +463,56 @@ export class AgentHarness {
     }
   }
 
+  // ── 业务方法:skill() / promptFromTemplate() ──
+
+  /**
+   * 调起一个 skill(从 resources.skills 找 skill,格式化后当 user prompt 调一次)。
+   *
+   * 实现细节见 skill-ops.ts(纯函数 + 依赖注入)。
+   *
+   * @param name  skill 名(小写字母+短横线)
+   * @param args  可选占位符参数
+   * @returns     prompt() 的返回值(本 turn 产生的消息列表)
+   * @throws      若 skill 不存在
+   */
+  async skill(
+    name: string,
+    args?: Record<string, string>,
+  ): Promise<AgentMessage[]> {
+    this.#assertNotDisposed();
+    return runSkillOp(
+      {
+        resources: this.#runtime.resources,
+        prompt: (text) => this.prompt(text),
+      },
+      name,
+      args,
+    );
+  }
+
+  /**
+   * 用 prompt template 生成 prompt(替换 {{key}} 占位符后调 prompt)。
+   *
+   * @param name  模板名
+   * @param args  占位符参数
+   * @returns     prompt() 的返回值
+   * @throws      若 template 不存在
+   */
+  async promptFromTemplate(
+    name: string,
+    args: Record<string, string>,
+  ): Promise<AgentMessage[]> {
+    this.#assertNotDisposed();
+    return runPromptFromTemplateOp(
+      {
+        resources: this.#runtime.resources,
+        prompt: (text) => this.prompt(text),
+      },
+      name,
+      args,
+    );
+  }
+
   // ── 内部方法 ──
 
   /** 派发事件到所有订阅者 */
@@ -485,11 +539,4 @@ export class AgentHarness {
     this.abort();
     this.#eventBus.clear();
   }
-}
-
-// ── 静态类型守卫 ──
-
-/** 运行时检查:是否 AgentHarness 实例 */
-export function isAgentHarness(value: unknown): value is AgentHarness {
-  return value instanceof AgentHarness;
 }

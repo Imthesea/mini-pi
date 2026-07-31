@@ -206,4 +206,16 @@ export {
   type BranchSummaryDetails,
   type TokenEstimationInput,
   type KeptEntries,
+  // Skills(Task 7 新增)
+  formatSkillsForSystemPrompt,
+  formatSkillInvocation,
+  parseSkillContent,
+  loadSkillFromFile,
+  SkillParseError,
+  type SkillFrontmatter,
+  type ParsedSkill,
+  type SkillArgs,
+  // Prompt Templates(Task 7 新增)
+  formatPromptTemplateInvocation,
+  type PromptTemplateArgs,
 } from "./harness/index.js";
