@@ -261,6 +261,12 @@ export class AgentHarness {
       cancel: () => {
         cancelled = true;
         unsubscribe();
+        // 关键:resolve pending 的 for await,否则 cancel 后 for await 永远挂起
+        if (resolveNext) {
+          const r = resolveNext;
+          resolveNext = null;
+          r(null);
+        }
       },
     };
   }

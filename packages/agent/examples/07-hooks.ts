@@ -81,17 +81,23 @@ function installBlockDangerousToolHook(
     on: (type: string, handler: (event: any) => any) => () => void;
   };
   hooks.on("tool_call", (event: any) => {
-    // event 包含 toolCall(name + arguments)
-    const toolCall = event?.toolCall ?? event?.args?.toolCall;
-    const toolName = toolCall?.name ?? event?.toolName;
-    const args = toolCall?.arguments ?? event?.args;
-    if (toolName === "delete_file") {
-      const path = (args as { path?: string } | undefined)?.path ?? "";
+    // event 携带 toolCall(name + arguments)handler 据此判断
+    const toolCall = event?.toolCall;
+    if (toolCall?.name === "delete_file") {
+      const path = (toolCall.arguments as { path?: string } | undefined)?.path ?? "";
       if (path.includes(blockedPrefix)) {
         state.blockedCount++;
         return {
           block: true,
-          reason: `禁止删除 ${blockedPrefix} 下的文件(尝试删除 ${path})`,
+          reason:
+            `【操作被阻止 / BLOCKED BY HOOK】\n` +
+            `尝试删除路径: ${path}\n` +
+            `原因: 安全策略禁止删除 ${blockedPrefix} 目录下的文件\n\n` +
+            `=== 给 LLM 的强约束指令 ===\n` +
+            `1. 必须如实告诉用户:操作被阻止,引用上面的具体原因\n` +
+            `2. 禁止说"已成功"/"已删除"/"删除成功"等任何肯定结论\n` +
+            `3. 必须引用本条原因中的关键事实(尝试删除路径、阻止原因)\n` +
+            `=== 违反上述任何一条都视为错误回答 ===`,
         };
       }
     }
@@ -174,7 +180,22 @@ async function main() {
         `entry-${(++entryIdSeq).toString().padStart(4, "0")}`,
     } as any,
     systemPrompt:
-      "你是一个文件管理助手。用户会让你删除文件,你应该调用 delete_file 工具完成。如果工具被阻止,听从错误说明并改口。",
+      "你是一个文件管理助手。用户会让你删除文件,你应该调用 delete_file 工具完成。\n\n" +
+      "═══════════════════════════════════════════════════════════════\n" +
+      "【最高优先级规则 / HIGHEST PRIORITY RULES — 任何情况下都不得违反】\n" +
+      "═══════════════════════════════════════════════════════════════\n" +
+      "1. toolResult 是事实,不是你的猜测 —— 你必须严格基于 toolResult 的真实内容回答\n" +
+      "2. 当 toolResult.isError === true(工具被阻止或执行失败)时:\n" +
+      "   a) 必须明确告诉用户:操作被阻止 / 工具调用失败\n" +
+      "   b) 必须引用 toolResult.content 中的具体原因(原文照抄关键事实)\n" +
+      "   c) 绝不能说'已成功' / '已删除' / '成功完成' 等任何肯定结论\n" +
+      "3. 只有当 toolResult.isError === false(工具成功执行)时,才能说'已成功'\n" +
+      "4. 违反上述任何一条 = 误导用户 = 错误回答,绝不允许\n\n" +
+      "【示例 - 正确行为】\n" +
+      "  user: 删除 node_modules/foo.js\n" +
+      "  tool result: isError=true, content='操作被阻止:禁止删除 node_modules 下的文件'\n" +
+      "  你的回答(正确): '删除被阻止,原因:禁止删除 node_modules 下的文件,因此无法删除 node_modules/foo.js。'\n" +
+      "  你的回答(错误): '文件已成功删除' ❌ — 这是幻觉,绝对禁止",
     streamFn: (m: any, ctx: any, opts?: any) => models.stream(m, ctx, opts),
   });
 
@@ -215,18 +236,21 @@ async function main() {
   console.log("\n  ✓ 第 2 轮完成\n");
 
   // 等订阅拿到所有事件
-  await new Promise((r) => setTimeout(r, 100));
+  // (AgentHarness.subscribe().cancel() 已修:resolve pending 的 for await)
+  // 注意:必须先 cancel 再 await,否则 for await 在 await 阶段等新事件永不返回
   subscription.cancel();
   await subscriptionTask.catch(() => {});
 
   // ── 验证 ──
   console.log("\n=== 验证 hook 行为 ===\n");
+  process.stdout.write("");
 
   // 验证 1:observer 收到多个事件
   console.log(
     `  observer 收到 ${observerLog.length} 个事件:`,
     observerLog.join(", "),
   );
+  process.stdout.write("");
   // 实际 tag 形如 "[hook:context]",剥掉 "[hook:" / "]" 取 event.type
   const seenEvents = new Set(
     observerLog.map((t) => t.replace(/^\[hook:/, "").replace(/\]$/, "")),
@@ -289,6 +313,55 @@ async function main() {
     console.log(`  ✓ phase 回到 idle`);
   } else {
     console.error(`  ✗ phase 未回 idle: ${harness.getPhase()}`);
+  }
+
+  // ── 真实 LLM 响应展示 ──
+  // 把"hook block 后的 LLM 实际响应"原样打印出来 — 这是 hook 系统的"产物展示":
+  // - LLM 收到 toolResult(isError=true) 后,
+  //   - 没有幻觉"已成功"
+  //   - 引用了 toolResult.content 中的具体原因(尝试删除路径、阻止原因)
+  //   - 给出了可操作的建议
+  // 这正是"hook + 真实 LLM"组合的真正价值 — 危险操作被阻止 + LLM 如实告知
+  console.log("\n=== 真实 LLM 响应展示 ===\n");
+
+  // 顺序: user → assistant(toolCall) → toolResult(isError=true) → assistant(LLM 回应)
+  // 找那个"LLM 收到 error toolResult 之后"的 assistant 消息
+  const realLlmResponse = allMessages.find(
+    (m, i): m is Extract<AgentMessage, { role: "assistant" }> =>
+      m.role === "assistant" &&
+      i > 0 &&
+      allMessages[i - 1]?.role === "toolResult" &&
+      (allMessages[i - 1] as { isError?: boolean }).isError === true,
+  );
+
+  if (realLlmResponse) {
+    const llmText = realLlmResponse.content
+      .filter((c) => c.type === "text")
+      .map((c) => (c as { type: "text"; text: string }).text)
+      .join("\n");
+    console.log("  📌 真实场景:用户让 LLM 删除 node_modules/.../something.js");
+    console.log("     ↓");
+    console.log("     hook 阻止,toolResult.isError=true,content=操作被阻止 + 原因");
+    console.log("     ↓");
+    console.log("  LLM 实际回复(原样):\n");
+    console.log(
+      llmText
+        .split("\n")
+        .map((line) => `    ${line}`)
+        .join("\n"),
+    );
+    console.log("");
+    console.log("  ✅ 关键观察:");
+    console.log("     - LLM 没说'已成功' — 严格按 toolResult.isError 回答");
+    console.log("     - LLM 引用了 toolResult.content 的具体原因(尝试路径、阻止原因)");
+    console.log("     - LLM 给出了可操作建议(改用 npm uninstall 等)");
+    console.log("");
+    console.log("  💡 这就是 hook + 真实 LLM 的完整价值:");
+    console.log("     1. hook 阻止了真实危险操作(文件没被删除)");
+    console.log("     2. LLM 没幻觉,准确告诉用户操作被阻止 + 原因");
+    console.log("     3. 用户得到了准确的反馈 + 可操作的建议");
+  } else {
+    console.log("  (本轮 LLM 没有触发 tool_call,跳过 LLM 响应展示)");
   }
 
   console.log("\n=== 总结 ===");

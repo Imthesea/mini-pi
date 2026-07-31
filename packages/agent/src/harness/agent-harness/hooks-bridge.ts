@@ -60,8 +60,16 @@ export function bridgeBeforeToolCall(
 ) => Promise<BeforeToolCallResult | undefined>) {
   return async (context, signal) => {
     // 1. 钩子系统:emit tool_call,handler 可返回 { block: true }
+    //    把 BeforeToolCallContext 全部传给 handler,
+    //    这样 handler 可以根据 toolCall.name / args 决定是否 block
     const hookResult = (await hooks.emit(
-      { type: "tool_call" },
+      {
+        type: "tool_call",
+        toolCall: context.toolCall,
+        args: context.args,
+        context: context.context,
+        assistantMessage: context.assistantMessage,
+      },
       signal,
     )) as BeforeToolCallResult | undefined;
 

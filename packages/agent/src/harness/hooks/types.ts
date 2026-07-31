@@ -18,7 +18,12 @@ import type {
   HookHandler,
   HookObserver,
 } from "../types/harness.js";
-import type { AgentMessage, ThinkingLevel } from "../../types.js";
+import type {
+  AgentContext,
+  AgentMessage,
+  AgentToolCall,
+  ThinkingLevel,
+} from "../../types.js";
 import type { AgentHarnessPhase } from "../phase.js";
 
 // ── 8 个核心事件(本 Task 启用) ──
@@ -50,11 +55,22 @@ export type BeforeAgentStartHookEvent = HookEvent<
  *
  * 语义:遇 block=true 提前退出(阻止工具执行)。
  * 触发时机:每个 toolCall 执行前(参数已校验)。
+ *
+ * event 携带上下文(handler 用来判断是否阻止):
+ * - `toolCall`:工具调用的具体内容(name + arguments)
+ * - `args`:经过 schema 校验后的参数
+ * - `context`:当前 agent 上下文
+ * - `assistantMessage`:触发本 toolCall 的 assistant 消息
  */
 export type ToolCallHookEvent = HookEvent<
   "tool_call",
   { block?: boolean; reason?: string }
->;
+> & {
+  toolCall: AgentToolCall;
+  args: unknown;
+  context: AgentContext;
+  assistantMessage: import("@mimi/ai").AssistantMessage;
+};
 
 /**
  * tool_result 事件:工具结果后处理。
