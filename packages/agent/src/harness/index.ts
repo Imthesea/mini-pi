@@ -147,7 +147,7 @@ export {
   type SessionBeforeCompactHookEvent,
   type ModelUpdateHookEvent,
   type AbortHookEvent,
-  // 9 预声明事件类型
+  // 12 预声明事件类型
   type BeforeProviderRequestHookEvent,
   type BeforeProviderPayloadHookEvent,
   type AfterProviderResponseHookEvent,

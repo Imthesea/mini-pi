@@ -2,14 +2,14 @@
  * 钩子系统公共类型。
  *
  * 文件定位:
- * - 17 个事件类型(8 核心 + 9 预声明)集中声明
+ * - 20 个事件类型(8 核心 + 12 预声明)集中声明
  * - AgentHarnessHookEvent 是它们的联合
  * - 公共类型:AgentHarnessHookContext / ResultOf / AgentHarnessHookName
  * - 门面接口:AgentHarnessHookContextFacade / SessionFacade / ModelFacade
  *
  * 设计原则:
  * - 事件类型基于 harness/types/harness.ts 的 HookEvent 泛型,带幻影结果
- * - 9 个预声明事件类型已定义但未在 agent-harness 中 emit(等后续 Task 启用)
+ * - 12 个预声明事件类型已定义但未在 agent-harness 中 emit(等后续 Task 启用)
  * - AgentHarnessHookEvent 是 DefaultAgentHarnessHooks<E, Ctx> 的 E 参数
  */
 
@@ -123,7 +123,7 @@ export type ModelUpdateHookEvent = HookEvent<"model_update", void>;
  */
 export type AbortHookEvent = HookEvent<"abort", void>;
 
-// ── 9 个预声明事件(Task 4 阶段不 emit,只占位) ──
+// ── 12 个预声明事件(Task 4 阶段不 emit,只占位) ──
 
 /** before_provider_request 事件:provider 请求前可改 streamOptions(预声明) */
 export type BeforeProviderRequestHookEvent = HookEvent<
@@ -185,7 +185,7 @@ export type SettledHookEvent = HookEvent<"settled", void>;
 // ── 公共联合类型 ──
 
 /**
- * 17 个事件的联合(8 核心 + 9 预声明)。
+ * 20 个事件的联合(8 核心 + 12 预声明)。
  *
  * 作为 DefaultAgentHarnessHooks 的 E 参数。
  * 配合 ResultOf<TEvent> 可以在 emit 时推导返回类型。
@@ -213,7 +213,7 @@ export type AgentHarnessHookEvent =
   | SettledHookEvent;
 
 /**
- * 17 个事件名的字面量联合。
+ * 20 个事件名的字面量联合。
  *
  * 用途:限制 type 参数,避免拼写错误。
  */

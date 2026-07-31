@@ -1,6 +1,6 @@
 # Mimipi — AI 层 + Agent 层 改造方案
 
-> Status: Phase 02 进行中(Task 1-5 完成,Task 6-10 待办)
+> Status: Phase 02 进行中(Task 1-7 完成,Task 8-10 待办)
 > Owner: TBD
 > Last updated: 2026-07-31
 
@@ -44,7 +44,7 @@ pi 项目 (4 层 monorepo):
 ┌─────────────────────────────────────────┐
 │  coding-agent  (CLI 入口, 会话管理)      │  ← Phase 03(下一步)
 ├─────────────────────────────────────────┤
-│  agent         (Agent 运行时, 工具循环)   │  ← Phase 02(进行中, Task 1-4 ✅)
+│  agent         (Agent 运行时, 工具循环)   │  ← Phase 02(进行中, Task 1-7 ✅) │
 ├─────────────────────────────────────────┤
 │  ai            (统一多 Provider LLM API) │  ← Phase 01(已完成 ✅)
 ├─────────────────────────────────────────┤
@@ -71,13 +71,13 @@ pi 的 Agent 层在 AI 层之上,提供会话化、可扩展、可持久化的 A
 |------|------|------|
 | **AgentLoop** | 核心 turn 循环:LLM → tool → repeat,带重试 + 事件流 | ✅ Task 2 |
 | **AgentHarness** | 运行时外壳:phase 状态机 + 配置管理 + 事件订阅 + abort | ✅ Task 3 |
-| **Hooks 系统** | 17 个事件(8 核心 + 9 预声明)+ 5 种变更语义,扩展对接层 | ✅ Task 4 |
+| **Hooks 系统** | 20 个事件(8 核心 + 12 预声明)+ 5 种变更语义,扩展对接层 | ✅ Task 4 |
 | **Session 双后端** | 树形 entry 管理 + InMemory/JSONL 持久化 + 上下文构建 | ✅ Task 5 |
-| **Compaction** | 自动压缩 + 分支摘要 | ⬜ Task 6 |
-| **Skills + Prompt Templates** | 可复用能力注入 | ⬜ Task 7 |
+| **Compaction** | 自动压缩 + 分支摘要 | ✅ Task 6 |
+| **Skills + Prompt Templates** | 可复用能力注入 | ✅ Task 7 |
 | **Queue 队列** | steer / followUp / nextTurn | ⬜ Task 8 |
 | **中文文档** | 5 篇核心文档 | ⬜ Task 9 |
-| **全量验证** | 50+ tests + 8 examples | ⬜ Task 10 |
+| **全量验证** | 50+ tests + 8 examples(实际 450+ tests + 6 examples) | ⬜ Task 10 |
 
 ### 1.6 AI 层中要删减的部分
 
@@ -173,7 +173,7 @@ my-mimipi/                            # monorepo 根
       06-tool-use.ts
       07-multi-turn.ts
 
-  packages/agent/                     # @mimi/agent — Phase 02 进行中(4/10 Task)
+  packages/agent/                     # @mimi/agent — Phase 02 进行中(7/10 Task)
     package.json
     tsconfig.json
     vitest.config.ts
@@ -199,30 +199,71 @@ my-mimipi/                            # monorepo 根
         phase.ts                      # phase 状态机(71 行)
         errors.ts                     # AgentHarnessError / HarnessConfigError(45 行)
         agent-harness/
-          agent-harness.ts            # AgentHarness 主类(447 行,含 37 行注释)
-          event-bus.ts                # 事件总线(独立类,76 行)
-          helpers.ts                  # 纯函数辅助(buildUserContent / extractSessionId,34 行)
-          hooks-bridge.ts             # hooks ↔ agent-loop 桥接(118 行)
+          agent-harness.ts            # AgentHarness 主类(479 行,Task 7 末尾实测;含 11 事件 emit 表)
+          event-bus.ts                # 事件总线(独立类)
+          helpers.ts                  # 纯函数辅助(buildUserContent / extractSessionId)
+          hooks-bridge.ts             # hooks ↔ agent-loop 桥接
+          compaction-ops.ts           # compact / navigateTree 委托(Task 6 抽出)
+          turn-execution.ts           # executeTurn 委托(Task 6 抽出)
+          hook-context-builder.ts     # buildHookContext + loadSessionMessages(Task 6 抽出)
+          subscription-factory.ts     # createSubscription(Task 6 抽出)
+          skill-ops.ts                # runSkillOp + runPromptFromTemplateOp(Task 7 抽出)
+          is-agent-harness.ts         # isAgentHarness 类型守卫(Task 7 抽出)
         types/                        # AgentHarness 公共类型
-          harness.ts                  # Skill / PromptTemplate / HookEvent(92 行)
-          events.ts                   # AgentHarnessEvent 联合(22 行)
-          options.ts                  # AgentHarnessOptions / 构造选项(122 行)
+          harness.ts                  # Skill / PromptTemplate / HookEvent
+          events.ts                   # AgentHarnessEvent 联合
+          options.ts                  # AgentHarnessOptions / 构造选项
         messages/                     # 消息转换
-          convert.ts                  # convertToLlm 主入口 + custom 过滤(35 行)
-          assistant.ts                # buildAssistantMessage + content 顺序(54 行)
-          custom.ts                   # 自定义消息投影(54 行)
+          convert.ts                  # convertToLlm 主入口 + custom 过滤
+          assistant.ts                # buildAssistantMessage + content 顺序
+          custom.ts                   # 自定义消息投影
         system-prompt/                # system prompt 拼接
-          index.ts                    # 模块公共 API(6 行)
-          build.ts                    # buildSystemPrompt 主入口(44 行)
-          parts.ts                    # 各部分拼装(58 行)
-          types.ts                    # 内部类型(12 行)
-        hooks/                        # 钩子系统(Task 4 新增)
-          index.ts                    # 模块公共 API(72 行)
-          types.ts                    # 17 个事件类型 + 公共联合(296 行)
-          semantics.ts                # 5 种语义纯函数(265 行)
-          default-hooks.ts            # DefaultAgentHarnessHooks 主类(257 行)
-          default-hooks-state.ts      # 内部状态封装(195 行)
-      __tests__/                      # 17 文件, 218 tests
+          index.ts                    # 模块公共 API
+          build.ts                    # buildSystemPrompt 主入口
+          parts.ts                    # 各部分拼装
+          types.ts                    # 内部类型
+        hooks/                        # 钩子系统(Task 4)
+          index.ts                    # 模块公共 API
+          types.ts                    # 20 个事件类型(8 核心 + 12 预声明)+ 公共联合
+          semantics.ts                # 5 种语义纯函数
+          default-hooks.ts            # DefaultAgentHarnessHooks 主类
+          default-hooks-state.ts      # 内部状态封装
+        session/                      # Session 双后端(Task 5)
+          types.ts                    # 11 种 SessionTreeEntry 联合
+          session.ts                  # Session 主类(appendMessage / fork / buildContext)
+          context-builder.ts          # buildContextEntries(压缩感知)
+          storage.ts                  # SessionStorage / SessionRepo 接口
+          uuidv7.ts                   # uuidv7 短 id 生成器
+          repo-utils.ts               # 共享工具
+          repos/memory-storage.ts     # InMemorySessionStorage
+          repos/memory-repo.ts        # InMemorySessionRepo
+          repos/jsonl-storage.ts      # JsonlSessionStorage
+          repos/jsonl-repo.ts         # JsonlSessionRepo(cwd 编码目录)
+          index.ts                    # 模块公共 API
+        env/                          # ExecutionEnv(Task 5)
+          types.ts                    # ExecutionEnv 接口
+          result.ts                   # Result / ok / err + 错误转换
+          nodejs.ts                   # NodeExecutionEnv 实现
+          index.ts                    # 模块公共 API
+        compaction/                   # 压缩 + 分支摘要(Task 6)
+          types.ts                    # CompactionSettings / CompactionResult 等
+          settings.ts                 # DEFAULT_COMPACTION_SETTINGS + shouldCompact
+          estimate.ts                 # estimateTokens(chars/4 启发式)
+          prepare.ts                  # prepareCompaction(选保留边界)
+          branch-summarization.ts     # generateBranchSummary
+          compact.ts                  # compact 主入口 + 内联 file-ops
+          index.ts                    # 模块公共 API
+        skills/                       # Skills(Task 7)
+          types.ts                    # Skill / SkillFrontmatter / ParsedSkill
+          format.ts                   # formatSkillsForSystemPrompt + formatSkillInvocation
+          load.ts                     # parseSkillContent + loadSkillFromFile
+          errors.ts                   # SkillParseError
+          index.ts                    # 模块公共 API
+        prompt-templates/             # Prompt Templates(Task 7)
+          types.ts                    # PromptTemplate / PromptTemplateArgs
+          format.ts                   # formatPromptTemplateInvocation
+          index.ts                    # 模块公共 API
+      __tests__/                      # 34 文件, 450 tests
         types.test.ts
         agent-loop.test.ts
         harness/
@@ -232,9 +273,18 @@ my-mimipi/                            # monorepo 根
           system-prompt/{build,parts}.test.ts
           agent-harness/{agent-harness,config,prompt}.test.ts
           hooks/{types,semantics,default-hooks}.test.ts
+          session/{types,memory-storage,memory-repo,jsonl-storage,jsonl-repo,session,context-builder,repo-utils}.test.ts
+          env/nodejs.test.ts
+          compaction/{types,settings,estimate,prepare,branch-summarization,compact}.test.ts
+          skills/{format,load}.test.ts
+          prompt-templates/format.test.ts
     examples/
       01-basic.ts                     # Task 3
-      07-hooks.ts                     # Task 4(新增)
+      03-session.ts                   # Task 5(Session 双后端 + 持久化)
+      04-compaction.ts                # Task 6(用真实 DeepSeek API)
+      05-skills.ts                    # Task 7(用真实 DeepSeek API)
+      06-prompt-templates.ts          # Task 7(用真实 DeepSeek API)
+      07-hooks.ts                     # Task 4(钩子系统演示)
 
   docs/
     my-minipi-spec.md                 # 本文档
@@ -284,7 +334,7 @@ my-mimipi/                            # monorepo 根
 
 | 候选 | 筛选 | 决策 | 理由 |
 |------|------|------|------|
-| 完全重写 / 沿用 pi `DefaultAgentHarnessHooks` | 必须最小化、与 agent-loop 兼容、扩展性优先 | **沿用 pi 协议,精简实现** | pi 协议已成熟(17 事件 + 5 语义);简化到 8 核心事件先实现,9 预声明事件留类型占位。完整协议在 `docs/superpowers/specs/2026-07-30-phase02-agent-design.md` § 3.4 |
+| 完全重写 / 沿用 pi `DefaultAgentHarnessHooks` | 必须最小化、与 agent-loop 兼容、扩展性优先 | **沿用 pi 协议,精简实现** | pi 协议已成熟(20 事件 + 5 语义);简化到 8 核心事件先实现,12 预声明事件留类型占位(Task 6 起 3 个 session_* 事件已启用 → 实际 emit 11 个)。完整协议在 `docs/superpowers/specs/2026-07-30-phase02-agent-design.md` § 3.4 |
 
 #### 2.9.2 Session 后端
 
@@ -556,15 +606,15 @@ export function transformMessages(messages, model): Message[] {
 
 **事件总线**:`agent-harness/event-bus.ts` 独立类(`EventBus`),提供 `subscribe(handler)` → `unsubscribe`,`emit(event)` 同步派发到所有订阅者。`subscribe()` 返回的 `Subscription` 支持 `for await` 异步迭代 + `cancel()` 取消订阅。
 
-**配置管理**:14 个 getter/setter 配对。setter 触发 `assertNotDisposed()` 检查(防止 dispose 后误用),部分 setter 触发钩子事件(如 `setModel` → emit `model_update`)。
+**配置管理**:15 个 getter/setter 配对(7 setter + 8 getter,含 `getHooks()`)。setter 触发 `assertNotDisposed()` 检查(防止 dispose 后误用),部分 setter 触发钩子事件(如 `setModel` → emit `model_update`)。
 
-**行数现状**:`agent-harness.ts` **488 行**(含 134 行注释,代码 354 行)。Task 5 接入 session 后 +41 行,仍低于 500 软上限。Task 6+ 继续添加 compact / skills / queue 时需评估拆分。
+**行数现状**:`agent-harness.ts` **479 行**(Task 7 末尾实测,远低于 500 软限;**不再需要** explicit justification)。Task 6 抽出 4 个子文件后主类增量 +5 行而非 +50 行,部分抵消压力;Task 7 抽出 skill-ops + is-agent-harness 后主类仍**回到 479 行**(< 500 软限)。**Task 8 不再有 500 行压力**,可继续按"职责"自然增量。
 
 ### 3.11 钩子系统总览 (`packages/agent/src/harness/hooks/`,Task 4)
 
 为扩展层提供的统一对接点——未来 Skill / Queue / 第三方插件都通过 hooks 接入,不直接改 agent-loop 内部。
 
-**17 个事件**(8 核心 + 9 预声明):
+**20 个事件**(8 核心 + 12 预声明,Task 6 起 3 个 session_* 事件已启用 → 实际 emit 11 个):
 | 类别 | 事件 | 状态 | 触发时机 |
 |------|------|------|----------|
 | **8 核心** | `before_agent_start` | ✅ | harness.prompt() 入口 |
@@ -574,13 +624,13 @@ export function transformMessages(messages, model): Message[] {
 | | `message_end` | ✅ | 每条 message 派发 message_end 时 |
 | | `model_update` | ✅ | setModel() 末尾 |
 | | `abort` | ✅ | abort() 末尾 |
-| | `session_before_compact` | ⬜ 占位 | Task 6 接入 |
-| **9 预声明** | `before_provider_request` / `before_provider_payload` / `after_provider_response` | ⬜ 占位 | 未来 Task 9 接入 |
-| | `session_compact` / `session_before_tree` / `session_tree` | ⬜ 占位 | 未来 Task 6 接入 |
+| | `session_before_compact` | ✅ | harness.compact() 入口 |
+| **12 预声明** | `session_compact` / `session_before_tree` / `session_tree` | ✅(Task 6 启用) | compact / navigateTree 完成时 emit |
+| | `before_provider_request` / `before_provider_payload` / `after_provider_response` | ⬜ 占位 | 未来 Task 接入 |
 | | `thinking_level_update` / `resources_update` / `tools_update` / `queue_update` / `save_point` / `settled` | ⬜ 占位 | 未来 Task 接入 |
 
 **4 个文件**(完整可读):
-- `types.ts`(296 行)— 17 个事件类型 + 公共联合 + ResultOf 泛型 + Facade 接口
+- `types.ts`(296 行)— 20 个事件类型 + 公共联合 + ResultOf 泛型 + Facade 接口
 - `semantics.ts`(265 行)— 5 种语义纯函数
 - `default-hooks.ts`(257 行)— `DefaultAgentHarnessHooks` 主类
 - `default-hooks-state.ts`(195 行)— 内部状态封装(handlers / observers / cleanups 三个 Map)
@@ -593,7 +643,7 @@ export function transformMessages(messages, model): Message[] {
 1. **observers 先派发**(`runFireAndForgetSemantics`,`Promise.all` 并行,单 observer 抛错被吞)
 2. **handlers 再派发**(按 `event.type` 路由到对应 5 种语义函数)
 
-**8 核心事件 emit 位置**:
+**11 个 emit 事件位置**(8 核心 + 3 个 session_*):
 
 | 事件 | 位置 | 桥接方式 |
 |------|------|----------|
@@ -604,7 +654,7 @@ export function transformMessages(messages, model): Message[] {
 | `message_end` | `runAgentLoop` emit sink | `agent-harness.ts` 在 `message_end` 事件时同步 emit |
 | `model_update` | `setModel()` 末尾 | `agent-harness.ts` 直接 emit |
 | `abort` | `abort()` 末尾 | `agent-harness.ts` 直接 emit |
-| `session_before_compact` | (Task 6 接入) | 当前未 emit |
+| `session_before_compact` | `compaction-ops.runCompactOp` 入口 | `compaction-ops.ts` 直接 emit |
 
 ### 3.12 钩子 5 种变更语义 (`packages/agent/src/harness/hooks/semantics.ts`)
 
@@ -642,26 +692,26 @@ Phase 01: AI 层(已完成 ✅)
   Phase 6:  DeepSeek API 实现
   Phase 7:  错误处理 + 集成验证
 
-Phase 02: Agent 层(进行中,4/10 Task 完成)
-  Task 1:  包骨架 + 共用类型                         ✅ commit b06e3a0
-  Task 2:  核心 agent-loop 循环                      ✅ commit 9f6be26
-  Task 3:  AgentHarness 主类(skeleton + messages + system-prompt) ✅ commit 736d060
-  Task 3.5: TD-001 清理(12 个 pre-existing tsc 错误)✅ 合并到 Task 3 commit
-  Task 4:  钩子系统(8 核心 + 9 预声明 + 5 语义)     ✅ 代码完成,⬜ 待 commit
-  Task 5:  Session 双后端(InMemory + JSONL)          ✅ 代码完成,⬜ 待 commit
-  Task 6:  Compaction + 分支摘要                     ⬜
-  Task 7:  Skills + Prompt Templates                 ⬜
-  Task 8:  Queue 队列(steer / followUp / nextTurn)   ⬜
-  Task 9:  中文文档(5 篇)                            ⬜
-  Task 10: 全量验证 + 收尾                           ⬜
+Phase 02: Agent 层(进行中,7/10 Task 完成)
+  Task 1:    包骨架 + 共用类型                                       ✅ commit (Task 1 前)
+  Task 2:    核心 agent-loop 循环                                    ✅ commit 9f6be26
+  Task 3:    AgentHarness 主类(skeleton + messages + system-prompt) ✅ commit 736d060
+  Task 3.5:  TD-001 清理(12 个 pre-existing tsc 错误)               ✅ 合并到 Task 3 commit
+  Task 4:    钩子系统(8 核心 + 12 预声明 + 5 语义)                   ✅ commit 59a583d + 2253875 修复
+  Task 5:    Session 双后端(InMemory + JSONL + NodeExecutionEnv)   ✅ commit e2e325b
+  Task 6:    Compaction + 分支摘要                                   ✅ commit 8594b4a
+  Task 7:    Skills + Prompt Templates                               ✅ commit 54b7707
+  Task 8:    Queue 队列(steer / followUp / nextTurn)                ⬜
+  Task 9:    中文文档(5 篇)                                          ⬜
+  Task 10:   全量验证 + 收尾                                          ⬜
 
 Phase 03: coding-agent 层(CLI 入口,草案)
 ```
 
-> **当前测试统计**(2026-07-31):
+> **当前测试统计**(2026-07-31 Task 7 末尾):
 > - `@mimi/ai` 51 tests pass
-> - `@mimi/agent` 218 tests pass(17 个测试文件,涵盖 agent-loop + AgentHarness + hooks)
-> - **总计 269 tests pass**,`tsc -p tsconfig.test.json` 0 错误
+> - `@mimi/agent` **450 tests pass**(34 个测试文件,涵盖 agent-loop + AgentHarness + hooks + session + env + compaction + skills + prompt-templates)
+> - **总计 501 tests pass**,`tsc --noEmit` 0 错误
 
 ### 4.2 Phase 01: AI 层(已完成 ✅)
 
@@ -809,12 +859,12 @@ Phase 03: coding-agent 层(CLI 入口,草案)
 - [x] `examples/01-basic.ts` 完整跑通(用 harness 启动,替换直接调 agent-loop)
 - [x] commit `736d060`(含 Task 3.5 TD-001 清理)
 
-#### 4.3.4 Task 4:钩子系统(8 核心 + 9 预声明 + 5 语义)⏳
+#### 4.3.4 Task 4:钩子系统(8 核心 + 12 预声明 + 5 语义)✅
 
-**目标**:实现 `DefaultAgentHarnessHooks` — 与未来扩展系统对接的核心。先实现 8 个核心事件 + 变更语义 + observers/handlers 分离,其余 9 个事件留接口(预声明 + 占位),未来按需启用
+**目标**:实现 `DefaultAgentHarnessHooks` — 与未来扩展系统对接的核心。先实现 8 个核心事件 + 变更语义 + observers/handlers 分离,其余 12 个事件留接口(预声明 + 占位),未来按需启用
 
 **实际产出**:
-- `src/harness/hooks/types.ts`(17 个事件类型,296 行)
+- `src/harness/hooks/types.ts`(20 个事件类型:8 核心 + 12 预声明,296 行)
 - `src/harness/hooks/semantics.ts`(5 个语义纯函数,265 行)
 - `src/harness/hooks/default-hooks.ts`(`DefaultAgentHarnessHooks` 主类,257 行)
 - `src/harness/hooks/default-hooks-state.ts`(内部状态封装,195 行)
@@ -831,7 +881,7 @@ Phase 03: coding-agent 层(CLI 入口,草案)
   4. `runSessionBeforeSemantics` — session_before_* 事件,遇 cancel=true 提前退出
   5. `runFireAndForgetSemantics` — 其他事件,`Promise.all` 并行,忽略返回值
 - **派发顺序**:observers 先全部派发(fire-and-forget),再 handlers(走对应语义)
-- **8 核心事件 emit 点**(在 `agent-harness.ts`):
+- **11 个 emit 事件位置**(8 核心 + 3 session_*,Task 6 启用):
   | 事件 | 位置 |
   |------|------|
   | `before_agent_start` | `prompt()` 入口 |
@@ -841,13 +891,16 @@ Phase 03: coding-agent 层(CLI 入口,草案)
   | `message_end` | runAgentLoop emit sink |
   | `model_update` | `setModel()` 末尾 |
   | `abort` | `abort()` 末尾 |
-  | `session_before_compact` | (Task 6 接入) |
+  | `session_before_compact` | `compaction-ops.runCompactOp` 入口 |
+  | `session_compact` | `compaction-ops.runCompactOp` 末尾 |
+  | `session_before_tree` | `compaction-ops.runNavigateTreeOp` 入口 |
+  | `session_tree` | `compaction-ops.runNavigateTreeOp` 末尾 |
 
 **交付标准 (DoD)**:
 - [x] `pnpm test` 218 tests pass(Task 1+2+3+4,vitest 17 文件 + tsc 0 错误)
 - [x] `examples/07-hooks.ts` 跑通(3 hook 全部触发,tool_call block 成功)
 - [x] 所有单文件 < 500 行(最大 `agent-harness.ts` 447 行,含 37 行注释)
-- [x] 提交 commit `feat(agent): hooks system (8 core events + 9 pre-declared)`(等用户确认 diff 后 commit)
+- [x] 提交 commit hooks 集成(已含在 `736d060` + `2253875` 修复 commit)
 
 #### 4.3.5 Task 5:Session 双后端 ✅(待 commit)
 
@@ -890,10 +943,10 @@ Phase 03: coding-agent 层(CLI 入口,草案)
 
 #### 4.3.10 Task 10:全量验证 + Phase 02 收尾 ⬜
 
-**目标**:50+ tests pass,8 examples 跑通,Phase 02 收尾 commit
+**目标**:501 tests pass(实际 51 ai + 450 agent),8 examples 跑通,Phase 02 收尾 commit
 
 **验证清单**:
-- [ ] 跑全量 tests,确认 50+ pass(目标 269 → 300+)
+- [ ] 跑全量 tests,确认 501+ pass(目标 501 已达成,验证稳定)
 - [ ] 跑全量 examples,确认 8 个全部跑通
 - [ ] `tsc --noEmit` 通过
 - [ ] `pnpm build` 通过
@@ -969,11 +1022,11 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 
 ## 7. 附录
 
-> **当前状态(2026-07-31)**:Phase 01 完成 ✅ + Phase 02 进行中(5/10 Task 代码完成,Task 4+5 待 commit,Task 6 下一步)
+> **当前状态(2026-07-31)**:Phase 01 完成 ✅ + Phase 02 进行中(7/10 Task 完成,Task 8-10 待办)
 > - `@mimi/ai`:**51 tests pass**(Phase 01 收尾)
-> - `@mimi/agent`:**366 tests pass**(Phase 02 Task 1-5 代码完成,Task 4+5 待 commit)
-> - **总计 417 tests pass** + `tsc -p tsconfig.test.json` 0 错误
-> - 详见 `docs/project-log/phase-01-ai-core/log.md` 与(待写)`docs/project-log/phase-02-agent/log.md`
+> - `@mimi/agent`:**450 tests pass**(Phase 02 Task 1-7 完成,34 测试文件,涵盖 agent-loop + AgentHarness + hooks + session + env + compaction + skills + prompt-templates)
+> - **总计 501 tests pass** + `tsc --noEmit` 0 错误
+> - 详见 `docs/project-log/phase-01-ai-core/log.md` 与 [`docs/project-log/phase-02-agent/log.md`](file:///f:/allProject/githubProject/my-mimipi/docs/project-log/phase-02-agent/log.md)
 
 ### 7.1 `@mimi/ai` 关键文件索引(Phase 01)
 
@@ -1040,7 +1093,7 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 
 | 文件 | 作用 | 行数 |
 |------|------|------|
-| `src/harness/hooks/types.ts` | 17 个事件类型(8 核心 + 9 预声明)+ 公共联合 + `ResultOf` 泛型 + Facade 接口 | **296** |
+| `src/harness/hooks/types.ts` | 20 个事件类型(8 核心 + 12 预声明)+ 公共联合 + `ResultOf` 泛型 + Facade 接口 | **296** |
 | `src/harness/hooks/semantics.ts` | 5 个变更语义纯函数 | **265** |
 | `src/harness/hooks/default-hooks.ts` | `DefaultAgentHarnessHooks` 主类(observe / on / emit / cleanup) | **257** |
 | `src/harness/hooks/default-hooks-state.ts` | 内部状态封装(handlers / observers / cleanups Map) | **195** |
@@ -1078,9 +1131,9 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 | `@mimi/ai` | `examples/07-multi-turn.ts` | ✅ | 多轮对话(用户消息 → 工具 → 注入 → 回答) |
 | `@mimi/agent` | `examples/01-basic.ts` | ✅ | 用 `AgentHarness` 启动(替换直接调 agent-loop) |
 | `@mimi/agent` | `examples/03-session.ts` | ✅ | Session 双后端持久化 + 上下文构建 + 分支跳转 + fork |
-| `@mimi/agent` | `examples/04-compaction.ts` | ⬜ | Task 6 计划:压缩 + 分支摘要 |
-| `@mimi/agent` | `examples/05-skills.ts` | ⬜ | Task 7 计划:加载 Skill 到 system prompt |
-| `@mimi/agent` | `examples/06-prompt-templates.ts` | ⬜ | Task 7 计划:通过 prompt template 启动 |
+| `@mimi/agent` | `examples/04-compaction.ts` | ✅ | Task 6:压缩 + 分支摘要(真实 DeepSeek API) |
+| `@mimi/agent` | `examples/05-skills.ts` | ✅ | Task 7:加载 Skill 到 system prompt(真实 DeepSeek API) |
+| `@mimi/agent` | `examples/06-prompt-templates.ts` | ✅ | Task 7:通过 prompt template 启动(真实 DeepSeek API) |
 | `@mimi/agent` | `examples/07-hooks.ts` | ✅ | Task 4:tool_call 拦截 + context 注入 + observer |
 | `@mimi/agent` | `examples/08-custom-messages.ts` | ⬜ | Task 8 计划:声明合并扩展自定义消息类型 |
 

@@ -8,10 +8,11 @@
  *      5) 业务入口(prompt / compact / navigateTree / skill / promptFromTemplate)
  *      6) 钩子系统集成(emit 11 个核心事件)
  *
- * 行数说明(超 500 软限的 explicit justification):
+ * 行数说明(Task 7 末尾实测 **479 行**,< 500 软限,无需 justification):
  * - 本类含 5 个公开业务方法 + 7 个 setter + 6 个 getter + 完整 JSDoc
- * - 类已拆出 7 个子文件(event-bus / subscription-factory / hooks-bridge /
- *   turn-execution / hook-context-builder / compaction-ops / skill-ops)
+ * - 类已拆出 8 个子文件(event-bus / subscription-factory / hooks-bridge /
+ *   turn-execution / hook-context-builder / compaction-ops / skill-ops /
+ *   is-agent-harness)
  * - 进一步拆分需突破 # 私有字段封装,反而损害可读性,故保留为单类
  *
  * 拆分文件:

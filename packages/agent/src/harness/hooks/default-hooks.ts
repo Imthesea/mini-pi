@@ -11,7 +11,7 @@
  *   clear/dispose 走 state.drainCleanups + state.reset),不分离
  * - 5 种语义函数独立在 semantics.ts(纯函数,易测)
  * - 内部状态在 default-hooks-state.ts(纯 CRUD,易测)
- * - 事件 type 在 types.ts(8 核心 + 9 预声明)
+ * - 事件 type 在 types.ts(8 核心 + 12 预声明)
  *
  * 派发顺序(spec 约定):
  * 1. observers 先派发(并行,fire-and-forget,单 observer 抛错不影响其他)

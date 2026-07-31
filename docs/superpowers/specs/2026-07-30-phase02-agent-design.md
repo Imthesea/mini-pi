@@ -16,15 +16,15 @@
 | 维度 | pi `packages/agent` | 本项目 `packages/agent` |
 |------|-------------------|---------------------|
 | Agent 类 | 两套(`Agent` 轻量 + `AgentHarness` 重型) | 只保留 `AgentHarness` |
-| 源文件 | ~30 | 22 |
-| 核心循环 | 1 (`agent-loop.ts`) | 1 (从 pi 完整保留) |
+| 源文件 | ~30 | ~25(按子目录组织,严格 ≤ 500 行) |
+| 核心循环 | 1 (`agent-loop.ts`) | 1 (从 pi 完整保留,含 5 个子模块) |
 | Session 后端 | 2 (InMemory + JSONL) | 2 (完整保留) |
 | 自定义消息 | 4 种 + 声明合并 | 4 种 + 声明合并(完整保留) |
-| 压缩 | 线性 compaction + branch summary | 完整保留 |
-| Skills / Templates | 完整 | 完整 |
+| 压缩 | 线性 compaction + branch summary | 完整保留(7 个文件) |
+| Skills / Templates | 完整 | 完整(5 个文件 + 2 个 example) |
 | 执行环境 | Node.js / browser | 仅 Node.js(无 browser) |
-| 钩子系统 | 完整 | 完整 |
-| 行数 | ~8,000 | ~4,500 |
+| 钩子系统 | 完整 | 完整(20 个事件:8 核心 + 12 预声明) |
+| 行数 | ~8,000 | ~4,500(目标) |
 
 ### 关键决策
 
@@ -63,12 +63,14 @@ TypeScript 5.9+ / Node.js 22+ / pnpm / vitest。与 AI 层保持一致。
 
 | 层次 | 工具 | 内容 | 数据 |
 |------|------|------|------|
-| **单元测试** | vitest | agent-loop 状态机、Session 读写、InMemory/JSONL Repo、Compaction token 估算、Branch summary、Hook 协议转换、消息转换 | 纯逻辑,内存中构造;JSONL 用临时目录 |
-| **集成验证** | `examples/*.ts` | 真实 LLM 调用:基础对话、工具调用、Session 持久化、压缩、手动钩子注入、Skills 加载、Prompt templates | 真实 API Key,真实场景 |
+| **单元测试** | vitest | agent-loop 状态机、Session 读写、InMemory/JSONL Repo、Compaction token 估算、Branch summary、Hook 协议转换、消息转换、Skills 解析、Prompt template 格式化 | 纯逻辑,内存中构造;JSONL 用临时目录;**34 个测试文件,~450 tests** |
+| **集成验证** | `examples/*.ts` | 真实 LLM 调用:基础对话、工具调用、Session 持久化、压缩、手动钩子注入、Skills 加载、Prompt templates | 真实 API Key,真实场景(**从 Task 7 起 examples 全部走真实 DeepSeek API**) |
 
 ---
 
 ## 2. 目录结构
+
+> 当前实现(Task 7 末尾实测)与本 spec 一致,目录按"职责子目录"组织,每个子目录有 `index.ts` 公共 API 出口。
 
 ```
 packages/agent/
@@ -77,67 +79,116 @@ packages/agent/
   vitest.config.ts
 
   src/
-    index.ts                # 公共 API 导出
+    index.ts                # 公共 API 导出(薄壳,~120 行)
     types.ts                # 共用类型:AgentContext, AgentEvent, AgentMessage, AgentTool, AgentLoopConfig, QueueMode, ThinkingLevel
-    agent-loop.ts           # 核心循环:LLM → tool → repeat(从 pi 完整保留,792 行)
-    harness/
-      index.ts              # 公共 API 导出
-      agent-harness.ts      # AgentHarness 主类(~1000 行,完整保留)
-      types.ts              # Harness 专用类型:Skill, PromptTemplate, HookEvent, AgentHarnessEvent, etc.
-      messages.ts           # 自定义消息类型(convertToLlm、convertCustomMessagesToLlm)
-      prompt-templates.ts   # 模板格式化
-      skills.ts             # Skills 格式化与 system prompt 注入
-      system-prompt.ts      # system prompt 拼接
-      compaction/
-        compaction.ts       # 线性压缩(token 估算 + 摘要生成)
-        branch-summarization.ts  # 分支摘要
-        utils.ts            # 文件操作追踪 + 摘要辅助
-      session/
-        session.ts          # Session 类(树形 entry 管理、上下文构建)
-        jsonl-storage.ts    # JSONL 文件存储
-        jsonl-repo.ts       # JSONL Session Repo
-        memory-storage.ts   # 内存存储
-        memory-repo.ts      # 内存 Session Repo
-        repo-utils.ts       # Repo 共享工具
-      env/
-        nodejs.ts           # Node.js 执行环境(shell 命令、文件操作)
-      utils/
-        shell-output.ts     # shell 输出捕获与格式化
-        truncate.ts         # 字符串截断
+    agent-loop.ts           # 核心循环公共入口(只做编排)
+    loop/                   # agent-loop 内部实现(严格 ≤ 500 行)
+      helpers.ts            # 纯函数辅助
+      stream-assistant.ts   # 流式响应 + 重试
+      tool-validation.ts    # TypeBox 参数校验
+      tool-execution.ts     # 工具执行入口(路由)
+      tool-execution/       # 执行子流水线
+        types.ts            # 内部类型
+        prepare.ts          # prepareToolCall(参数校验 + beforeToolCall 桥接)
+        execute.ts          # executePreparedToolCall(onUpdate 派发)
+        finalize.ts         # finalizeExecutedToolCall(afterToolCall 桥接)
+        truncate.ts         # failToolCallsFromTruncatedMessage
+        sequential.ts       # 串行执行
+        parallel.ts         # 并行执行
+    harness/                # AgentHarness 运行时外壳
+      index.ts              # 模块公共 API(薄壳)
+      phase.ts              # phase 状态机
+      errors.ts             # AgentHarnessError / HarnessConfigError
+      agent-harness/        # AgentHarness 主类 + 子文件
+        agent-harness.ts    # AgentHarness 主类(479 行,Task 7 末尾实测)
+        event-bus.ts        # 事件总线(独立类)
+        helpers.ts          # 纯函数辅助
+        hooks-bridge.ts     # hooks ↔ agent-loop 桥接
+        compaction-ops.ts   # compact / navigateTree 委托(Task 6 抽出)
+        turn-execution.ts   # executeTurn 委托(Task 6 抽出)
+        hook-context-builder.ts  # buildHookContext + loadSessionMessages(Task 6 抽出)
+        subscription-factory.ts  # createSubscription(Task 6 抽出)
+        skill-ops.ts        # runSkillOp + runPromptFromTemplateOp(Task 7 抽出)
+        is-agent-harness.ts # isAgentHarness 类型守卫(Task 7 抽出)
+      types/                # AgentHarness 公共类型
+        harness.ts          # Skill / PromptTemplate / HookEvent
+        events.ts           # AgentHarnessEvent 联合
+        options.ts          # AgentHarnessOptions / 构造选项
+      messages/             # 消息转换
+        convert.ts          # convertToLlm 主入口 + custom 过滤
+        assistant.ts        # buildAssistantMessage + content 顺序
+        custom.ts           # 自定义消息投影
+      system-prompt/        # system prompt 拼接
+        index.ts            # 模块公共 API
+        build.ts            # buildSystemPrompt 主入口
+        parts.ts            # 各部分拼装
+        types.ts            # 内部类型
+      hooks/                # 钩子系统(20 个事件:8 核心 + 12 预声明)
+        index.ts            # 模块公共 API
+        types.ts            # 20 个事件类型 + 公共联合
+        semantics.ts        # 5 种语义纯函数
+        default-hooks.ts    # DefaultAgentHarnessHooks 主类
+        default-hooks-state.ts  # 内部状态封装
+      session/              # Session 双后端
+        types.ts            # 11 种 SessionTreeEntry 联合
+        session.ts          # Session 主类
+        context-builder.ts  # buildContextEntries(压缩感知)
+        storage.ts          # SessionStorage / SessionRepo 接口
+        uuidv7.ts           # uuidv7 短 id 生成器
+        repo-utils.ts       # 共享工具
+        repos/
+          memory-storage.ts # InMemorySessionStorage
+          memory-repo.ts    # InMemorySessionRepo
+          jsonl-storage.ts  # JsonlSessionStorage
+          jsonl-repo.ts     # JsonlSessionRepo(cwd 编码目录)
+        index.ts            # 模块公共 API
+      env/                  # ExecutionEnv(仅 Node.js)
+        types.ts            # ExecutionEnv 接口
+        result.ts           # Result / ok / err + 错误转换
+        nodejs.ts           # NodeExecutionEnv 实现
+        index.ts            # 模块公共 API
+      compaction/           # 压缩 + 分支摘要(Task 6)
+        types.ts            # CompactionSettings / CompactionResult 等
+        settings.ts         # DEFAULT_COMPACTION_SETTINGS + shouldCompact
+        estimate.ts         # estimateTokens(chars/4 启发式)
+        prepare.ts          # prepareCompaction(选保留边界)
+        branch-summarization.ts  # generateBranchSummary
+        compact.ts          # compact 主入口 + 内联 file-ops
+        index.ts            # 模块公共 API
+      skills/               # Skills(Task 7)
+        types.ts            # Skill / SkillFrontmatter / ParsedSkill
+        format.ts           # formatSkillsForSystemPrompt + formatSkillInvocation
+        load.ts             # parseSkillContent + loadSkillFromFile
+        errors.ts           # SkillParseError
+        index.ts            # 模块公共 API
+      prompt-templates/     # Prompt Templates(Task 7)
+        types.ts            # PromptTemplate / PromptTemplateArgs
+        format.ts           # formatPromptTemplateInvocation
+        index.ts            # 模块公共 API
 
-  src/__tests__/            # vitest 单元测试
+  src/__tests__/            # vitest 单元测试(34 个测试文件,~450 tests)
+    types.test.ts
     agent-loop.test.ts
     harness/
-      agent-harness.test.ts
-      hooks.test.ts
-      messages.test.ts
-      prompt-templates.test.ts
-      skills.test.ts
-      system-prompt.test.ts
-      compaction/
-        compaction.test.ts
-        branch-summarization.test.ts
-        utils.test.ts
-      session/
-        session.test.ts
-        jsonl-repo.test.ts
-        memory-repo.test.ts
-        repo-utils.test.ts
-      env/
-        nodejs.test.ts
-      utils/
-        shell-output.test.ts
-        truncate.test.ts
+      phase.test.ts
+      types/{harness,events,options}.test.ts
+      messages/{convert,assistant,custom}.test.ts
+      system-prompt/{build,parts}.test.ts
+      agent-harness/{agent-harness,config,prompt}.test.ts
+      hooks/{types,semantics,default-hooks}.test.ts
+      session/{types,memory-storage,memory-repo,jsonl-storage,jsonl-repo,session,context-builder,repo-utils}.test.ts
+      env/nodejs.test.ts
+      compaction/{types,settings,estimate,prepare,branch-summarization,compact}.test.ts
+      skills/{format,load}.test.ts
+      prompt-templates/format.test.ts
 
-  examples/
-    01-basic.ts             # 最简 AgentHarness 用法
-    02-tools.ts              # 工具调用(读文件 + 写文件)
-    03-session.ts            # Session 创建 + 持久化(JSONL)+ 重启
-    04-compaction.ts         # 长对话触发压缩
-    05-skills.ts             # 加载 Skill 到 system prompt
-    06-prompt-templates.ts   # 通过 prompt template 启动
-    07-hooks.ts              # 注册自定义钩子(context 转换 + tool_call 拦截)
-    08-custom-messages.ts    # 声明合并扩展自定义消息类型
+  examples/                 # 真实 DeepSeek API 集成示例(6 个)
+    01-basic.ts             # Task 2/3:基础 harness + 工具调用
+    03-session.ts           # Task 5:Session 双后端 + 持久化
+    04-compaction.ts        # Task 6:压缩(真实 DeepSeek API)
+    05-skills.ts            # Task 7:Skills(真实 DeepSeek API)
+    06-prompt-templates.ts  # Task 7:Prompt Templates(真实 DeepSeek API)
+    07-hooks.ts             # Task 4:钩子系统演示
 ```
 
 ---
@@ -270,26 +321,31 @@ export interface AgentHarnessHookContext {
 
 **完整保留 pi 的 `DefaultAgentHarnessHooks`**。钩子通过事件 `emit()` 派发,每个事件可携带"幻影结果类型",handlers 可以返回该结果。
 
-**钩子事件清单**:
+**钩子事件清单(20 个 = 8 核心 + 12 预声明)**:
 
-| 事件 | 携带结果 | 用途 |
-|------|----------|------|
-| `context` | `{ messages?: AgentMessage[] }` | 转换发送给 LLM 的消息链(可过滤/重排) |
-| `before_agent_start` | `{ messages?, systemPrompt? }` | 注入额外消息或修改 system prompt |
-| `before_provider_request` | `{ streamOptions? }` | 修补流选项(headers、metadata) |
-| `before_provider_payload` | `{ payload }` | 修补 provider 请求体 |
-| `after_provider_response` | undefined | provider 返回后只读观察 |
-| `tool_call` | `{ block?, reason? }` | 拦截工具调用(可阻止) |
-| `tool_result` | `{ content?, details?, isError?, terminate? }` | 修补工具结果 |
-| `message_end` | undefined | 消息结束时通知 |
-| `session_before_compact` | `{ cancel?, compaction? }` | 压缩前拦截(可取消或注入已有压缩) |
-| `session_compact` | undefined | 压缩完成后通知 |
-| `session_before_tree` | `{ cancel?, summary?, customInstructions?, replaceInstructions?, label? }` | 树形跳转前拦截 |
-| `session_tree` | undefined | 树形跳转完成后通知 |
-| `model_update` / `thinking_level_update` / `resources_update` / `tools_update` | undefined | 配置变更通知 |
-| `queue_update` | undefined | 队列变化通知 |
-| `save_point` | undefined | 保存点通知 |
-| `abort` / `settled` | undefined | 终止与结算通知 |
+> **8 核心事件**(agent-harness 实际 emit):`context`、`before_agent_start`、`tool_call`、`tool_result`、`message_end`、`session_before_compact`、`model_update`、`abort`
+>
+> **12 预声明事件**(types.ts 已声明,后续 Task 启用):`before_provider_request`、`before_provider_payload`、`after_provider_response`、`session_compact`、`session_before_tree`、`session_tree`、`thinking_level_update`、`resources_update`、`tools_update`、`queue_update`、`save_point`、`settled`
+
+| 事件 | 分类 | 携带结果 | 用途 |
+|------|------|----------|------|
+| `context` | 核心 | `{ messages?: AgentMessage[] }` | 转换发送给 LLM 的消息链(可过滤/重排) |
+| `before_agent_start` | 核心 | `{ messages?, systemPrompt? }` | 注入额外消息或修改 system prompt |
+| `tool_call` | 核心 | `{ block?, reason? }` | 拦截工具调用(可阻止) |
+| `tool_result` | 核心 | `{ content?, details?, isError?, terminate? }` | 修补工具结果 |
+| `message_end` | 核心 | undefined | 消息结束时通知 |
+| `session_before_compact` | 核心 | `{ cancel?, compaction? }` | 压缩前拦截(可取消或注入已有压缩) |
+| `model_update` | 核心 | undefined | 模型变更通知 |
+| `abort` | 核心 | undefined | 终止通知 |
+| `before_provider_request` | 预声明 | `{ streamOptions? }` | 修补流选项(headers、metadata) |
+| `before_provider_payload` | 预声明 | `{ payload }` | 修补 provider 请求体 |
+| `after_provider_response` | 预声明 | undefined | provider 返回后只读观察 |
+| `session_compact` | 预声明(Task 6 起可 emit) | undefined | 压缩完成后通知 |
+| `session_before_tree` | 预声明(Task 6 起可 emit) | `{ cancel?, summary?, customInstructions?, replaceInstructions?, label? }` | 树形跳转前拦截 |
+| `session_tree` | 预声明(Task 6 起可 emit) | undefined | 树形跳转完成后通知 |
+| `thinking_level_update` / `resources_update` / `tools_update` | 预声明 | undefined | 配置变更通知 |
+| `queue_update` | 预声明(Task 8 启用) | undefined | 队列变化通知 |
+| `save_point` / `settled` | 预声明 | undefined | 保存点与结算通知 |
 
 **钩子接口**:
 
@@ -633,17 +689,20 @@ export class NodeExecutionEnv implements ExecutionEnv {
 
 完整 plan 见 [2026-07-30-phase02-agent-plan.md](../plans/2026-07-30-phase02-agent-plan.md)。
 
-| 阶段 | 内容 | 验证 |
+> **当前进度(2026-07-31 Task 7 末尾)**:Task 1-7 已完成,Task 8-10 待办。`@mimi/agent` 共 ~25 个核心文件 + 6 个 examples(共 ~1300 行),34 个测试文件 / 450 测试通过。最新 commit: `54b7707`(Task 7 skills + prompt templates)。
+
+| Task | 内容 | 验证 |
 |------|------|------|
-| Step 1 | `agent-loop.ts` + `types.ts` | `agent-loop.test.ts` 跑通,`examples/01-basic.ts` 跑通 |
-| Step 2 | `harness/agent-harness.ts` 主体 + `messages.ts` + `system-prompt.ts` | `agent-harness.test.ts` 跑通,`examples/01-basic.ts` 完整跑通 |
-| Step 3 | `harness/hooks.ts`(默认实现) + 钩子文档 | `hooks.test.ts` 跑通,`examples/07-hooks.ts` 跑通 |
-| Step 4 | `harness/session/` 全部 + `harness/env/nodejs.ts` | session 测试 + nodejs 测试 + `examples/03-session.ts` 跑通 |
-| Step 5 | `harness/compaction/` 全部 | compaction 测试 + `examples/04-compaction.ts` 跑通 |
-| Step 6 | `harness/skills.ts` + `harness/prompt-templates.ts` | skills/templates 测试 + `examples/05-06.ts` 跑通 |
-| Step 7 | `examples/08-custom-messages.ts` + 类型测试 | 声明合并验证 |
-| Step 8 | 写中文文档(5 篇) | 文档 review |
-| Step 9 | 全量测试 + 全量 examples 跑通 | 50+ tests pass |
+| Task 1 | `agent-loop.ts` + `types.ts` 包骨架 | `types.test.ts` 跑通 |
+| Task 2 | `agent-loop.ts` 核心循环 + `loop/` 子目录拆分 | `agent-loop.test.ts` 跑通,`examples/01-basic.ts` 跑通 |
+| Task 3 | `harness/agent-harness/` 主体 + `messages/` + `system-prompt/` | `agent-harness.test.ts` 跑通,`examples/01-basic.ts` 完整跑通 |
+| Task 4 | `harness/hooks/`(20 事件 + 5 语义)+ `hooks-bridge.ts` | `hooks/*.test.ts` 跑通,`examples/07-hooks.ts` 跑通 |
+| Task 5 | `harness/session/` 双后端 + `harness/env/` + `harness/types/` | session 测试 + nodejs 测试 + `examples/03-session.ts` 跑通 |
+| Task 6 | `harness/compaction/`(线性压缩 + 分支摘要)+ `compaction-ops.ts` | compaction 测试 + `examples/04-compaction.ts` 跑通 |
+| Task 7 | `harness/skills/` + `harness/prompt-templates/` + `skill-ops.ts` | skills/templates 测试 + `examples/05-06.ts` 跑通 |
+| Task 8 | 队列操作(`steer` / `followUp` / `nextTurn`)+ 自定义消息示例 | 队列测试 + `examples/08-custom-messages.ts` 跑通 |
+| Task 9 | 5 篇中文文档(`agent-harness.md` / `hooks.md` / `session.md` / `compaction.md` / `skills-and-templates.md`) | 文档 review 通过 |
+| Task 10 | 全量测试 + 全量 examples 跑通 + Phase 02 收尾 | 450+ tests pass,`tsc --noEmit` 0 错误 |
 
 ---
 

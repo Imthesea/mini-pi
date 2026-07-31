@@ -6,18 +6,18 @@
 
 ## 进度总览
 
-| Task | 标题 | 状态 | 完成日期 |
-|------|------|------|----------|
-| 1 | 包骨架 + types.ts | ✅ | 2026-07-30 |
-| 2 | 核心 agent-loop 循环 | ⏳ | — |
-| 3 | AgentHarness 主类 (skeleton + messages + system-prompt + 02-tools) | ⏳ | — |
-| 4 | 钩子系统 (hooks + emit + handlers) | ⏳ | — |
-| 5 | Session 双后端 (session + repos + env/nodejs) | ⏳ | — |
-| 6 | 压缩 + 分支摘要 (compaction) | ⏳ | — |
-| 7 | Skills + Prompt Templates | ⏳ | — |
-| 8 | 队列操作 + 自定义消息示例 | ⏳ | — |
-| 9 | 文档输出 (5 篇中文文档) | ⏳ | — |
-| 10 | 全量验证 + Phase 02 收尾 | ⏳ | — |
+| Task | 标题 | 状态 | 完成日期 | Commit |
+|------|------|------|----------|--------|
+| 1 | 包骨架 + types.ts | ✅ | 2026-07-30 | (Task 1 前) |
+| 2 | 核心 agent-loop 循环 | ✅ | 2026-07-30 | `9f6be26` |
+| 3 | AgentHarness 主类 (skeleton + messages + system-prompt) | ✅ | 2026-07-30 | `736d060` |
+| 4 | 钩子系统 (hooks + emit + handlers) | ✅ | 2026-07-31 | (含 `2253875` 修复) |
+| 5 | Session 双后端 (session + repos + env/nodejs) | ✅ | 2026-07-31 | `e2e325b` |
+| 6 | 压缩 + 分支摘要 (compaction) | ✅ | 2026-07-31 | `8594b4a` |
+| 7 | Skills + Prompt Templates | ✅ | 2026-07-31 | `54b7707` |
+| 8 | 队列操作 + 自定义消息示例 | ⏳ | — | — |
+| 9 | 文档输出 (5 篇中文文档) | ⏳ | — | — |
+| 10 | 全量验证 + Phase 02 收尾 | ⏳ | — | — |
 
 ## 文档节奏约定
 
@@ -110,3 +110,76 @@ $ # dist/ 生成 {index,types}.{js,d.ts,map}
 ### 提交状态
 
 - 改完未提交（按用户偏好,等审查后再 commit）
+
+---
+
+## Task 2-7: 批量补登(2026-07-31)
+
+> 说明:Task 2-7 已陆续完成但未在 log 中追加 section。本节批量补登核心信息,
+> 详细实施细节见 [实施 Plan](../plans/2026-07-30-phase02-agent-plan.md) 对应 Task 完成备注。
+
+### Task 2 ✅ agent-loop 核心循环(commit `9f6be26`)
+
+- 翻译自 pi `packages/agent/src/agent-loop.ts` (~792 行)
+- 物理拆分到 10 个文件:`loop/{stream-assistant,tool-execution,helpers,tool-validation}.ts` + `loop/tool-execution/{sequential,parallel,prepare,execute,finalize,truncate,types}.ts`
+- 最大单文件 180 行(低于 500 软上限)
+- 公共 API 入口 `agent-loop.ts` ~200 行,只做编排
+- example `01-basic.ts` 用 mock provider 跑通(后已切换到真实 API)
+
+### Task 3 ✅ AgentHarness 主类(commit `736d060`,含 Task 3.5 TD-001 清理)
+
+- 实际 12 个源文件:`harness/{agent-harness/agent-harness,event-bus,helpers,phase}.ts` + `harness/messages/{convert,assistant,custom}.ts` + `harness/system-prompt/{build,parts,index}.ts` + `harness/types/{harness,events,options}.ts` + `harness/index.ts`
+- **重构决策**:从"3 文件拆 config / prompt"合并为单 `agent-harness.ts` 394 行(`Object.assign` + `declare module` 模式可读性差)
+- 修了 12 个 pre-existing 错误(StreamFn import / AgentTool 不匹配 / 联合 narrow)
+- `vitest` 218 / 218 通过,`tsc` 0 错误
+
+### Task 4 ✅ 钩子系统(commit `736d060` 后,含 `2253875` 修复)
+
+- 8 个核心事件 + 9 个预声明事件(`hooks/types.ts` 296 行)
+- 5 种语义纯函数合并到 `hooks/semantics.ts` 265 行(避免"为对称而拆")
+- `default-hooks.ts` 257 行(主类 + dispatch + cleanup 紧密耦合不分离)
+- 11 个事件 emit 点接入 `agent-harness.ts`(`+agent-harness.ts` 53 行)
+- 修复:`tool_call` hook 携带 `toolCall` 上下文 + `subscribe` cancel 修 bug(`2253875`)
+
+### Task 5 ✅ Session 双后端(commit `e2e325b`)
+
+- 14 个源文件 + 10 个测试文件
+- 11 种 `SessionTreeEntry` 联合(`session/types.ts` 259 行)
+- Session 主类含 fork 合并到 `session.ts` 355 行(低于 500 软上限)
+- 双后端:`InMemorySessionStorage` + `JsonlSessionStorage`(header + appendFile 同步落盘)
+- `NodeExecutionEnv` 387 行(readFile / writeFile / exec 等)
+- example `03-session.ts` 8 阶段演示
+- `vitest` 366 / 366 通过
+
+### Task 6 ✅ 压缩 + 分支摘要(commit `8594b4a`)
+
+- 7 个 compaction 源文件(`compaction/{types,settings,estimate,prepare,branch-summarization,compact,index}.ts`)
+- 4 个子文件从 `agent-harness.ts` 抽出:`compaction-ops.ts` / `turn-execution.ts` / `hook-context-builder.ts` / `subscription-factory.ts`
+- `compact.ts` 内联 `extractFileOpsFromMessage` + `shouldCompact` 合并入 `settings.ts`(避免"为拆而拆")
+- example `04-compaction.ts` 用真实 DeepSeek API 跑通
+- `vitest` 422 / 422 通过
+
+### Task 7 ✅ Skills + Prompt Templates(commit `54b7707`)
+
+- 8 个源文件:`skills/{types,format,load,errors,index}.ts` + `prompt-templates/{types,format,index}.ts`
+- 2 个子文件从 `agent-harness.ts` 抽出:`skill-ops.ts` + `is-agent-harness.ts`
+- Skill frontmatter YAML 极简解析(不引 yaml 库,避免依赖)
+- 占位符语法统一 `{{name}}`(skills + templates 共用)
+- 2 个 example 全部用真实 DeepSeek API
+- `vitest` 450 / 450 通过(vitest 34 文件 + tsc 0 错误)
+
+### 累计行数与规模(2026-07-31 Task 7 末尾)
+
+- 源文件数:~25 个核心文件 + 6 个 examples(01/03/04/05/06/07,共 ~1300 行)
+- 测试文件数:34 个
+- 测试数:450 通过
+- 最大单文件:`agent-harness.ts` 479 行(< 500 软限 21 行,不再需要 explicit justification)
+- 总 commit 数:8 个(从 `9f6be26` 到 `54b7707`)
+
+### 关键设计模式
+
+- **依赖注入**:`ExecutionEnv` / `streamFn` / `model` 通过 `AgentHarnessOptions` 注入,便于测试
+- **钩子 5 语义**:顺序转换 / 遇 block 退出 / 累积补丁 / 遇 cancel 退出 / fire-and-forget
+- **拆分布局**:`agent-harness.ts` 单类 + 8 个子文件(event-bus / subscription-factory / hooks-bridge / turn-execution / hook-context-builder / compaction-ops / skill-ops / is-agent-harness)
+- **YAML 极简解析**:Skill frontmatter 仅支持 `name` / `description`,不引外部库
+- **占位符统一**:`{{name}}` 语法在 skills 和 prompt-templates 共用
