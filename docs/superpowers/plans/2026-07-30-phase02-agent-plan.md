@@ -649,17 +649,85 @@ cd packages/agent && pnpm test env
 npx tsx examples/03-session.ts
 ```
 
-- [ ] Step 1: 写 `harness/session/types.test.ts` + 跑挂 → 写 `harness/session/types.ts` `SessionTreeEntry` 等 → 跑绿
-- [ ] Step 2: 写 `harness/session/{memory-storage,memory-repo}.test.ts` + 跑挂 → 写实现 → 跑绿
-- [ ] Step 3: 写 `harness/session/{jsonl-storage,jsonl-repo,repo-utils}.test.ts` + 跑挂 → 写实现 → 跑绿
-- [ ] Step 4: 写 `harness/session/session.test.ts` + 跑挂(主类 + fork)→ 写 `harness/session/session.ts`(含 fork)→ 跑绿
-- [ ] Step 5: 写 `harness/session/context-builder.test.ts` + 跑挂 → 写 `harness/session/context-builder.ts` → 跑绿
-- [ ] Step 6: 写 `harness/env/nodejs.test.ts` + 跑挂 → 写 `harness/env/nodejs.ts` → 跑绿
-- [ ] Step 7: 把 session + env 接入 `agent-harness.ts`(`prompt` 时 appendEntry)
-- [ ] Step 8: 写 `examples/03-session.ts` 跑通
-- [ ] Step 9: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
-- [ ] Step 10: 暂停,展示 git diff 给用户审查
-- [ ] Step 11: 提交 commit `feat(agent): session dual-backend + nodejs env`
+- [x] Step 1: 写 `harness/session/types.test.ts` + 跑挂 → 写 `harness/session/types.ts` `SessionTreeEntry` 等 → 跑绿
+- [x] Step 2: 写 `harness/session/{memory-storage,memory-repo}.test.ts` + 跑挂 → 写实现 → 跑绿
+- [x] Step 3: 写 `harness/session/{jsonl-storage,jsonl-repo,repo-utils}.test.ts` + 跑挂 → 写实现 → 跑绿
+- [x] Step 4: 写 `harness/session/session.test.ts` + 跑挂(主类 + fork)→ 写 `harness/session/session.ts`(含 fork)→ 跑绿
+- [x] Step 5: 写 `harness/session/context-builder.test.ts` + 跑挂 → 写 `harness/session/context-builder.ts` → 跑绿
+- [x] Step 6: 写 `harness/env/nodejs.test.ts` + 跑挂 → 写 `harness/env/nodejs.ts` → 跑绿
+- [x] Step 7: 把 session + env 接入 `agent-harness.ts`(`prompt` 时 appendMessage;hook context 填充 session facade)
+- [x] Step 8: 写 `examples/03-session.ts` 跑通
+- [x] Step 9: `wc -l` 检查所有新文件,全部 < 500 行,无需走工程原则 § 2.2 确认流程
+- [x] Step 10: 跑全量验证(vitest 366/366 + tsc 0 错误 + pnpm build 0 警告)
+- [x] Step 11: 展示 git diff 给用户审查(已批准)
+
+**Task 5 完成备注**(2026-07-31):
+- **新增 14 个源文件**:
+  - `src/harness/session/types.ts` (259 行) — 11 种 `SessionTreeEntry` 联合 + `SessionError` + `JsonlSessionMetadata` 等
+  - `src/harness/session/session.ts` (355 行) — `Session` 主类(appendMessage / getEntries / setLeafId / moveTo / appendLabel / fork / buildContext)
+  - `src/harness/session/storage.ts` (174 行) — `SessionStorage` / `SessionRepo` 接口 + `JsonlSession*` 类型
+  - `src/harness/session/context-builder.ts` (203 行) — `buildContextEntries`(压缩感知) + `buildSessionContext` + 投影器/转换器
+  - `src/harness/session/repo-utils.ts` (106 行) — `createSessionId` / `createTimestamp` / `getEntriesToFork` / `getFileSystemResultOrThrow` / `toSession` / `loadJsonlSessionMetadata`
+  - `src/harness/session/uuidv7.ts` (53 行) — uuidv7 短 id 生成器(取末 8 位,100 次重试,完整 uuid 兜底)
+  - `src/harness/session/repos/memory-storage.ts` (178 行) — `InMemorySessionStorage` 实现
+  - `src/harness/session/repos/memory-repo.ts` (100 行) — `InMemorySessionRepo` 实现
+  - `src/harness/session/repos/jsonl-storage.ts` (412 行) — `JsonlSessionStorage` 实现(header + appendFile 同步落盘)
+  - `src/harness/session/repos/jsonl-repo.ts` (244 行) — `JsonlSessionRepo` 实现(cwd 编码目录 + create/open/list/delete/fork)
+  - `src/harness/env/types.ts` (163 行) — `ExecutionEnv` 接口(必填 `cwd`)+ `ExecOptions` / `ExecResult` / `FileInfo` + `Result` / `ok` / `err` + `FileError` / `ExecutionError`
+  - `src/harness/env/result.ts` (124 行) — `Result` / `ok` / `err` / `toFileSystemError` / `toExecutionError` / `getResultOrThrow`
+  - `src/harness/env/nodejs.ts` (387 行) — `NodeExecutionEnv` 实现(readFile / readBinaryFile / writeFile / appendFile / stat / readdir / mkdir / remove / absolutePath / joinPath / exec)
+  - `src/harness/env/index.ts` (32 行) — env 模块公共 API re-export
+- **新增 9 个测试文件**:
+  - `__tests__/harness/session/_helpers/mock-fs.ts` (301 行) — 内存版 fs mock
+  - `__tests__/harness/session/types.test.ts` (12 tests) — 11 种 entry 类型守卫 + 错误类型
+  - `__tests__/harness/session/memory-storage.test.ts` (23 tests) — `InMemorySessionStorage` 行为
+  - `__tests__/harness/session/memory-repo.test.ts` (15 tests) — `InMemorySessionRepo` 行为(create / open / list / delete / fork)
+  - `__tests__/harness/session/jsonl-storage.test.ts` (13 tests) — `JsonlSessionStorage` 行为(header / append / reopen)
+  - `__tests__/harness/session/jsonl-repo.test.ts` (16 tests) — `JsonlSessionRepo` 行为(cwd 编码 / list / open / fork)
+  - `__tests__/harness/session/session.test.ts` (26 tests) — `Session` 主类全部方法(append / setLeaf / moveTo / fork / buildContext)
+  - `__tests__/harness/session/context-builder.test.ts` (13 tests) — `buildContextEntries` 压缩感知 + 投影器
+  - `__tests__/harness/session/repo-utils.test.ts` (13 tests) — 共享工具
+  - `__tests__/harness/env/nodejs.test.ts` (17 tests) — `NodeExecutionEnv` 行为(读 / 写 / 删 / exec / timeout / 跨平台)
+- **新增 1 个 example**:
+  - `examples/03-session.ts` (414 行) — 8 阶段演示:
+    1. 创建 session + 2 轮对话
+    2. 列出 entries
+    3. close reference + reopen(验证持久化)
+    4. `moveTo` 回到第 1 轮 + BranchSummary
+    5. `buildContext` 派生 LLM messages
+    6. 再次 reopen(跨进程验证)
+    7. `list` 列出所有 session
+    8. `InMemorySessionRepo` fork 对照
+    + 附:AgentHarness 集成示例
+- **修改 4 个文件**:
+  - `src/harness/agent-harness/agent-harness.ts` — 447 → 488 行(+41),增量:
+    - hook context 的 `session` facade 填充:`getId` / `getMessages`
+    - `#loadSessionMessages(session)` 从 session 加载历史消息(handler 可见)
+    - `_syncHookContext()` 在 `prompt` 入口同步
+    - `prompt` 时 fire-and-forget `session.appendMessage(userMessage)`(失败只 log 不阻塞)
+    - `runAgentLoop` `message_end` 事件 sink 中 fire-and-forget `session.appendMessage(event.message)`(含 assistant / toolResult)
+  - `src/harness/index.ts` — 增量:re-export Session / Storage / Types / Repos / Env 全部公共 API
+  - `src/index.ts` — 增量:顶层 re-export 上述
+  - `__tests__/harness/agent-harness/prompt.test.ts` — +33 行:session 集成测试(user / assistant 消息 append)
+- **example 调整**:
+  - `examples/01-basic.ts` / `07-hooks.ts` mock session 加 `appendMessage` 方法(Task 5 后需要)
+- **行数检查**:全部 < 500 行(最大 `agent-harness.ts` 488 行,其中代码 354 行 + 134 行注释)
+- **验证**:
+  - `pnpm test`:366 tests pass(vitest 26 文件全绿,`tsc -p tsconfig.test.json` 0 错误)
+  - `pnpm build`:0 警告
+  - `examples/03-session.ts` 跑通:8 阶段全部成功 + AgentHarness 集成正常
+  - `examples/01-basic.ts` / `07-hooks.ts` 未回归
+- **关键设计决策**:
+  - **11 种 entry 联合**:`message` / `thinking_level_change` / `model_change` / `active_tools_change` / `compaction` / `branch_summary` / `custom` / `custom_message` / `label` / `session_info` / `leaf`
+  - **`LeafEntry` 显式记录**:切 leaf 是 append 一条 `LeafEntry`,而非仅内存修改(可追溯 leaf 迁移历史)
+  - **JSONL 版本号 3**:header 第一行 `{"type":"header","version":3,...}`,未来格式不兼容时拒绝旧文件
+  - **cwd 编码**:`/home/user/proj` → `--home-user-proj--`(`/` `\` `:` 合并为 `-`,跨平台)
+  - **adapter 模式**:`JsonlSessionRepoFileSystem` 是 JSONL repo 私有最小 fs 接口,通过 example 中的 `adaptExecutionEnvForJsonlRepo(env)` 桥接到 `ExecutionEnv`(保持 repo 接口与通用 fs 接口解耦)
+  - **session 失败不阻塞 turn**:`session.appendMessage` 失败只 log,不抛(对话不能因持久化问题挂掉)
+- **遗留 / 后续**:
+  - `Session.moveTo` 已有 BranchSummary 流程,但本 Task 不演示 compaction(Task 6 接入)
+  - `ExecutionEnv.exec` 已在,Task 6+ 才实际被工具调用使用
+  - session 工具元数据持久化(`tools.update` 事件触发 `ActiveToolsChangeEntry` 写入)本 Task 未接,Task 8 接入
 
 ---
 

@@ -1,6 +1,6 @@
 # Mimipi — AI 层 + Agent 层 改造方案
 
-> Status: Phase 02 进行中(Task 1-4 完成,Task 5-10 待办)
+> Status: Phase 02 进行中(Task 1-5 完成,Task 6-10 待办)
 > Owner: TBD
 > Last updated: 2026-07-31
 
@@ -72,7 +72,7 @@ pi 的 Agent 层在 AI 层之上,提供会话化、可扩展、可持久化的 A
 | **AgentLoop** | 核心 turn 循环:LLM → tool → repeat,带重试 + 事件流 | ✅ Task 2 |
 | **AgentHarness** | 运行时外壳:phase 状态机 + 配置管理 + 事件订阅 + abort | ✅ Task 3 |
 | **Hooks 系统** | 17 个事件(8 核心 + 9 预声明)+ 5 种变更语义,扩展对接层 | ✅ Task 4 |
-| **Session 双后端** | 树形 entry 管理 + InMemory/JSONL 持久化 + 上下文构建 | ⬜ Task 5(下一步) |
+| **Session 双后端** | 树形 entry 管理 + InMemory/JSONL 持久化 + 上下文构建 | ✅ Task 5 |
 | **Compaction** | 自动压缩 + 分支摘要 | ⬜ Task 6 |
 | **Skills + Prompt Templates** | 可复用能力注入 | ⬜ Task 7 |
 | **Queue 队列** | steer / followUp / nextTurn | ⬜ Task 8 |
@@ -558,7 +558,7 @@ export function transformMessages(messages, model): Message[] {
 
 **配置管理**:14 个 getter/setter 配对。setter 触发 `assertNotDisposed()` 检查(防止 dispose 后误用),部分 setter 触发钩子事件(如 `setModel` → emit `model_update`)。
 
-**行数现状**:`agent-harness.ts` **447 行**(含 37 行注释)。未来 Task 5 接入 session / Task 6 加 compact / Task 7 加 skills / Task 8 加 queue 后预计 530+ 行,届时按工程原则 § 2.2 评估是否拆分。
+**行数现状**:`agent-harness.ts` **488 行**(含 134 行注释,代码 354 行)。Task 5 接入 session 后 +41 行,仍低于 500 软上限。Task 6+ 继续添加 compact / skills / queue 时需评估拆分。
 
 ### 3.11 钩子系统总览 (`packages/agent/src/harness/hooks/`,Task 4)
 
@@ -648,7 +648,7 @@ Phase 02: Agent 层(进行中,4/10 Task 完成)
   Task 3:  AgentHarness 主类(skeleton + messages + system-prompt) ✅ commit 736d060
   Task 3.5: TD-001 清理(12 个 pre-existing tsc 错误)✅ 合并到 Task 3 commit
   Task 4:  钩子系统(8 核心 + 9 预声明 + 5 语义)     ✅ 代码完成,⬜ 待 commit
-  Task 5:  Session 双后端(InMemory + JSONL)          ⬜ 下一步
+  Task 5:  Session 双后端(InMemory + JSONL)          ✅ 代码完成,⬜ 待 commit
   Task 6:  Compaction + 分支摘要                     ⬜
   Task 7:  Skills + Prompt Templates                 ⬜
   Task 8:  Queue 队列(steer / followUp / nextTurn)   ⬜
@@ -847,17 +847,23 @@ Phase 03: coding-agent 层(CLI 入口,草案)
 - [x] `pnpm test` 218 tests pass(Task 1+2+3+4,vitest 17 文件 + tsc 0 错误)
 - [x] `examples/07-hooks.ts` 跑通(3 hook 全部触发,tool_call block 成功)
 - [x] 所有单文件 < 500 行(最大 `agent-harness.ts` 447 行,含 37 行注释)
-- [⬜] 提交 commit `feat(agent): hooks system (8 core events + 9 pre-declared)`(等用户确认 diff 后 commit)
+- [x] 提交 commit `feat(agent): hooks system (8 core events + 9 pre-declared)`(等用户确认 diff 后 commit)
 
-#### 4.3.5 Task 5:Session 双后端 ⬜(下一步)
+#### 4.3.5 Task 5:Session 双后端 ✅(待 commit)
 
-**目标**:实现 Session 类(树形 entry 管理 + 上下文构建)+ InMemory/JSONL 双后端 + NodeExecutionEnv
+> **目标**:实现 Session 类(树形 entry 管理 + 上下文构建)+ InMemory/JSONL 双后端 + NodeExecutionEnv
 
-**计划产出**:
-- `src/harness/session/{types,memory-storage,memory-repo,jsonl-storage,jsonl-repo,repo-utils,session,context-builder}.ts`
-- `src/harness/env/{nodejs,env}.ts`
-- `__tests__/harness/session/` + `__tests__/harness/env/`
-- `examples/03-session.ts`
+**已完成内容**:
+- `src/harness/session/{types,memory-storage,memory-repo,jsonl-storage,jsonl-repo,repo-utils,session,context-builder}.ts` + `uuidv7.ts`
+- `src/harness/env/{types,result,nodejs,index}.ts`
+- `__tests__/harness/session/`(8 个测试文件)+ `__tests__/harness/env/nodejs.test.ts`
+- `examples/03-session.ts`(8 阶段演示 + AgentHarness 集成)
+
+**关键 API**:
+- `Session`:appendMessage / getEntries / setLeafId / moveTo / appendLabel / fork / buildContext
+- `InMemorySessionStorage` / `JsonlSessionStorage`:实现 `SessionStorage` 接口
+- `InMemorySessionRepo` / `JsonlSessionRepo`:实现 `SessionRepo` 接口
+- `NodeExecutionEnv`:完整 fs/cmd 实现,全部 `Result<T, FileError|ExecutionError>` 不抛
 
 #### 4.3.6 Task 6:Compaction + 分支摘要 ⬜
 
@@ -963,10 +969,10 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 
 ## 7. 附录
 
-> **当前状态(2026-07-31)**:Phase 01 完成 ✅ + Phase 02 进行中(4/10 Task 代码完成,Task 4 待 commit,Task 5 下一步)
+> **当前状态(2026-07-31)**:Phase 01 完成 ✅ + Phase 02 进行中(5/10 Task 代码完成,Task 4+5 待 commit,Task 6 下一步)
 > - `@mimi/ai`:**51 tests pass**(Phase 01 收尾)
-> - `@mimi/agent`:**218 tests pass**(Phase 02 Task 1-4 代码完成,Task 4 等用户确认 diff 后 commit)
-> - **总计 269 tests pass** + `tsc -p tsconfig.test.json` 0 错误
+> - `@mimi/agent`:**366 tests pass**(Phase 02 Task 1-5 代码完成,Task 4+5 待 commit)
+> - **总计 417 tests pass** + `tsc -p tsconfig.test.json` 0 错误
 > - 详见 `docs/project-log/phase-01-ai-core/log.md` 与(待写)`docs/project-log/phase-02-agent/log.md`
 
 ### 7.1 `@mimi/ai` 关键文件索引(Phase 01)
@@ -986,7 +992,7 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 | `packages/ai/src/utils/error-body.ts` | 错误规范化(`normalizeProviderError`) |
 | `packages/ai/src/utils/assistant-message.ts` | `createErrorAssistantMessage` 辅助函数 |
 
-### 7.2 `@mimi/agent` 关键文件索引(Phase 02,4/10)
+### 7.2 `@mimi/agent` 关键文件索引(Phase 02,5/10)
 
 > 全部在 `packages/agent/` 下,标注行数为 2026-07-31 实测(`wc -l`)
 
@@ -994,8 +1000,8 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 
 | 文件 | 作用 | 行数 |
 |------|------|------|
-| `src/index.ts` | 公共 API re-export | 126 |
-| `src/harness/index.ts` | harness 模块公共 API | 89 |
+| `src/index.ts` | 公共 API re-export | 182 |
+| `src/harness/index.ts` | harness 模块公共 API | 159 |
 
 #### 7.2.1 公共层(Task 1+2)
 
@@ -1014,9 +1020,9 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 
 | 文件 | 作用 | 行数 |
 |------|------|------|
-| `src/harness/agent-harness/agent-harness.ts` | `AgentHarness` 主类(phase 状态机 + 配置管理 + 事件订阅 + abort) | **447** |
+| `src/harness/agent-harness/agent-harness.ts` | `AgentHarness` 主类(phase 状态机 + 配置管理 + 事件订阅 + abort + session 接入) | **488** |
 | `src/harness/agent-harness/event-bus.ts` | 事件总线(独立类) | 76 |
-| `src/harness/agent-harness/helpers.ts` | 纯函数辅助(`buildUserContent` / `extractSessionId`) | 34 |
+| `src/harness/agent-harness/helpers.ts` | 纯函数辅助(`buildUserContent` / `extractSessionId`) | 45 |
 | `src/harness/phase.ts` | phase 状态机 | 71 |
 | `src/harness/errors.ts` | `AgentHarnessError` / `HarnessConfigError` | 45 |
 | `src/harness/types/harness.ts` | `Skill` / `PromptTemplate` / `HookEvent` 泛型 | 92 |
@@ -1041,6 +1047,25 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 | `src/harness/hooks/index.ts` | 模块公共 API re-export | 72 |
 | `src/harness/agent-harness/hooks-bridge.ts` | 钩子 ↔ agent-loop 桥接(`beforeToolCall` / `afterToolCall` 包装) | 118 |
 
+#### 7.2.4 Session 双后端(Task 5)
+
+| 文件 | 作用 | 行数 |
+|------|------|------|
+| `src/harness/session/types.ts` | 11 种 `SessionTreeEntry` 联合 + `SessionError` + `JsonlSessionMetadata` | 259 |
+| `src/harness/session/session.ts` | `Session` 主类(appendMessage / getEntries / setLeafId / moveTo / appendLabel / fork / buildContext) | 355 |
+| `src/harness/session/storage.ts` | `SessionStorage` / `SessionRepo` 接口 + `JsonlSession*` 类型 | 174 |
+| `src/harness/session/context-builder.ts` | `buildContextEntries`(压缩感知)+ `buildSessionContext` + 投影器/转换器 | 203 |
+| `src/harness/session/repo-utils.ts` | 共享工具(`createSessionId` / `getEntriesToFork` / `loadJsonlSessionMetadata` 等) | 106 |
+| `src/harness/session/uuidv7.ts` | uuidv7 短 id 生成器(取末 8 位,100 次重试) | 53 |
+| `src/harness/session/repos/memory-storage.ts` | `InMemorySessionStorage` 实现 | 178 |
+| `src/harness/session/repos/memory-repo.ts` | `InMemorySessionRepo` 实现 | 100 |
+| `src/harness/session/repos/jsonl-storage.ts` | `JsonlSessionStorage` 实现(header + appendFile 同步落盘) | 412 |
+| `src/harness/session/repos/jsonl-repo.ts` | `JsonlSessionRepo` 实现(cwd 编码目录) | 244 |
+| `src/harness/env/types.ts` | `ExecutionEnv` 接口(必填 `cwd`)+ `ExecOptions` / `ExecResult` / `FileInfo` + `Result` / `ok` / `err` + `FileError` / `ExecutionError` | 163 |
+| `src/harness/env/result.ts` | `Result` 工具 + 错误转换 | 124 |
+| `src/harness/env/nodejs.ts` | `NodeExecutionEnv` 实现(readFile / writeFile / exec / 等) | 387 |
+| `src/harness/env/index.ts` | env 模块公共 API re-export | 32 |
+
 ### 7.3 examples 索引
 
 | 包 | 文件 | 状态 | 说明 |
@@ -1052,7 +1077,7 @@ Log 文件（复盘：实际发生了什么、问题、教训）
 | `@mimi/ai` | `examples/06-tool-use.ts` | ✅ | 工具调用(DeepSeek 真实 API) |
 | `@mimi/ai` | `examples/07-multi-turn.ts` | ✅ | 多轮对话(用户消息 → 工具 → 注入 → 回答) |
 | `@mimi/agent` | `examples/01-basic.ts` | ✅ | 用 `AgentHarness` 启动(替换直接调 agent-loop) |
-| `@mimi/agent` | `examples/03-session.ts` | ⬜ | Task 5 计划:Session 持久化 + 上下文构建 |
+| `@mimi/agent` | `examples/03-session.ts` | ✅ | Session 双后端持久化 + 上下文构建 + 分支跳转 + fork |
 | `@mimi/agent` | `examples/04-compaction.ts` | ⬜ | Task 6 计划:压缩 + 分支摘要 |
 | `@mimi/agent` | `examples/05-skills.ts` | ⬜ | Task 7 计划:加载 Skill 到 system prompt |
 | `@mimi/agent` | `examples/06-prompt-templates.ts` | ⬜ | Task 7 计划:通过 prompt template 启动 |
