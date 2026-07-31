@@ -9,8 +9,12 @@
  * 5. 关闭(release reference),再 `open` 同 metadata,验证 entries 还在
  * 6. 输出 session 文件路径,用户可用 `cat` 查看
  * 7. 顺便演示 `InMemorySessionRepo` 的同流程(快速验证 fork)
+ * 8. 附:把 session 接到 AgentHarness + 真实 DeepSeek,跑一次 prompt
+ *    让 user / assistant 消息自动 append 到 JSONL 文件
  *
  * 运行: cd packages/agent && npx tsx examples/03-session.ts
+ *
+ * 真实 LLM 调用:需要设置 DEEPSEEK_API_KEY(代码自动从 packages/ai/.env 读取)
  *
  * 输出文件位置:
  * - 临时目录 `<TMP>/mimi-session-demo/<encoded-cwd>/<timestamp>_<id>.jsonl`
@@ -21,23 +25,29 @@
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Type } from "typebox";
 import {
   AgentHarness,
   InMemorySessionRepo,
   JsonlSessionRepo,
   NodeExecutionEnv,
   type AgentMessage,
+  type AgentTool,
   type AssistantMessage,
   type FileError,
   type JsonlSessionMetadata,
-  type MessageEntry,
   type Result,
   type Session,
   type SessionTreeEntry,
   type UserMessage,
 } from "../src/index.js";
 import type { ExecutionEnv } from "../src/index.js";
-import type { Model } from "@mimi/ai";
+import {
+  createModels,
+  deepseekProvider,
+  envApiKey,
+  type Model,
+} from "@mimi/ai";
 
 // ── 工厂:构造符合 @mimi/ai 契约的 AgentMessage ──
 
@@ -49,15 +59,19 @@ function userMsg(text: string): UserMessage {
 /**
  * 构造 assistant message,带全部 @mimi/ai AssistantMessage 必填字段
  * (api / provider / model / usage / stopReason)。
- * 本例用 mock 字段值(因为我们只关心 session 持久化,不实际调 LLM)。
+ * 本例用真实 DeepSeek 返回的字段值占位(因为我们手动写入 session,
+ * 不通过 LLM 调用,字段值是占位但符合 schema)。
  */
-function assistantMsg(content: AssistantMessage["content"]): AssistantMessage {
+function assistantMsg(
+  content: AssistantMessage["content"],
+  model: Model<any>,
+): AssistantMessage {
   return {
     role: "assistant",
     content,
-    api: "anthropic-messages",
-    provider: "mock",
-    model: "mock-model",
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
     usage: {
       input: 1,
       output: 1,
@@ -161,20 +175,24 @@ function adaptExecutionEnvForJsonlRepo(env: ExecutionEnv): {
   };
 }
 
-// ── Mock model(只为 harness 构造所需,本例不实际调 LLM) ──
+// ── 真实模型设置(DeepSeek) ──
 
-const mockModel: Model<any> = {
-  id: "mock-model",
-  name: "Mock Model",
-  api: "anthropic-messages",
-  provider: "mock",
-  baseUrl: "https://mock.invalid",
-  reasoning: false,
-  input: ["text"],
-  cost: { input: 0, output: 0 },
-  contextWindow: 200000,
-  maxTokens: 8192,
-};
+/** 准备真实 DeepSeek 模型(从 .env 读 DEEPSEEK_API_KEY) */
+function setupDeepSeekModel(): { model: Model<any>; models: ReturnType<typeof createModels> } {
+  if (!envApiKey("DEEPSEEK_API_KEY")) {
+    console.error("❌ 未设置 DEEPSEEK_API_KEY,请在 packages/ai/.env 中配置。");
+    process.exit(1);
+  }
+  const models = createModels();
+  models.set(deepseekProvider());
+  const model = models.getModel("deepseek", "deepseek-v4-flash");
+  if (!model) {
+    console.error("❌ 找不到模型 deepseek/deepseek-v4-flash");
+    process.exit(1);
+  }
+  console.log(`✅ DeepSeek 模型: ${model.name} (context: ${model.contextWindow.toLocaleString()} tokens)\n`);
+  return { model, models };
+}
 
 // ── 工具:打印 entries ──
 
@@ -233,6 +251,23 @@ function describeEntry(entry: SessionTreeEntry): string {
   }
 }
 
+// ── Tool(供阶段 9 AgentHarness 集成使用) ──
+
+const echoTool: AgentTool = {
+  name: "echo",
+  label: "Echo",
+  description: "回显输入文本",
+  parameters: Type.Object({
+    text: Type.String({ description: "要回显的文本" }),
+  }),
+  execute: async (_id, params) => {
+    return {
+      content: [{ type: "text", text: `echo: ${(params as { text: string }).text}` }],
+      details: { ok: true },
+    };
+  },
+};
+
 // ── 主流程 ──
 
 async function main() {
@@ -256,6 +291,9 @@ async function main() {
     }
   }
 
+  // 真实模型(DeepSeek)
+  const { model: deepseekModel, models: deepseekModels } = setupDeepSeekModel();
+
   const env = new NodeExecutionEnv({ cwd });
   const fsAdapter = adaptExecutionEnvForJsonlRepo(env);
   const repo = new JsonlSessionRepo({
@@ -275,7 +313,7 @@ async function main() {
   // 第 1 轮
   const user1Id = await session.appendMessage(userMsg("你好,我叫 Alice"));
   const assistant1Id = await session.appendMessage(
-    assistantMsg([{ type: "text", text: "你好 Alice!有什么可以帮你?" }]),
+    assistantMsg([{ type: "text", text: "你好 Alice!有什么可以帮你?" }], deepseekModel),
   );
   console.log(`  ✓ 第 1 轮:`);
   console.log(`    user:      ${user1Id.slice(0, 8)}`);
@@ -284,16 +322,19 @@ async function main() {
   // 第 2 轮(带 tool call)
   const user2Id = await session.appendMessage(userMsg("查一下天气"));
   const assistant2Id = await session.appendMessage(
-    assistantMsg([
-      { type: "text", text: "我查一下" },
-      { type: "toolCall", id: "call_1", name: "get_weather", arguments: { city: "Beijing" } },
-    ]),
+    assistantMsg(
+      [
+        { type: "text", text: "我查一下" },
+        { type: "toolCall", id: "call_1", name: "get_weather", arguments: { city: "Beijing" } },
+      ],
+      deepseekModel,
+    ),
   );
   const toolResult2Id = await session.appendMessage(
     toolResultMsg("call_1", "get_weather", "晴,25°C"),
   );
   const assistant2FinalId = await session.appendMessage(
-    assistantMsg([{ type: "text", text: "北京今天晴,25°C。" }]),
+    assistantMsg([{ type: "text", text: "北京今天晴,25°C。" }], deepseekModel),
   );
   console.log(`  ✓ 第 2 轮:`);
   console.log(`    user:           ${user2Id.slice(0, 8)}`);
@@ -346,7 +387,7 @@ async function main() {
   // 在新分支上继续
   const user3Id = await reopened.appendMessage(userMsg("我叫什么来着?"));
   const assistant3Id = await reopened.appendMessage(
-    assistantMsg([{ type: "text", text: "你叫 Alice 呀!" }]),
+    assistantMsg([{ type: "text", text: "你叫 Alice 呀!" }], deepseekModel),
   );
   console.log(`  ✓ 新分支:`);
   console.log(`    user:      ${user3Id.slice(0, 8)}`);
@@ -404,7 +445,7 @@ async function main() {
   const memSession = await memRepo.create({});
   await memSession.appendMessage(userMsg("parent"));
   const parentUserId = (await memSession.getEntries()).at(-1)!.id;
-  await memSession.appendMessage(assistantMsg([{ type: "text", text: "hi" }]));
+  await memSession.appendMessage(assistantMsg([{ type: "text", text: "hi" }], deepseekModel));
   console.log(`  ✓ 父 session 创建(${(await memSession.getMetadata()).id.slice(0, 8)})`);
 
   const forked = await memRepo.fork(await memSession.getMetadata(), {
@@ -418,45 +459,59 @@ async function main() {
   });
   console.log();
 
-  // ── 阶段 9:展示文件路径 + 提示 ──
+  // ── 阶段 9:AgentHarness + 真实 DeepSeek 集成 ──
+  console.log("--- 阶段 9:AgentHarness + 真实 DeepSeek + JSONL Session 集成 ---\n");
+  console.log("  ℹ️  创建一个新 session,跑 2 个 prompt,让 AgentHarness 自动 appendMessage\n");
+
+  // 创建一个新的 session(独立于上面演示用的)
+  const harnessSession = await repo.create({ cwd });
+  const harnessMeta = await harnessSession.getMetadata();
+  console.log(`  ✓ 新 session: id=${harnessMeta.id.slice(0, 8)}`);
+  console.log(`    file path: ${harnessMeta.path}\n`);
+
+  // 构造 AgentHarness:真实模型 + 真实 streamFn(走 DeepSeek) + JSONL session
+  const harness = new AgentHarness({
+    model: deepseekModel,
+    tools: [echoTool],
+    env: env as any,
+    session: harnessSession as any,
+    systemPrompt: "你是一个简洁的中文助手,用 echo 工具回显用户的短句。",
+    streamFn: (model: any, context: any, options?: any) =>
+      deepseekModels.stream(model, context, options),
+  });
+
+  // 第 1 轮
+  console.log("  → 第 1 个 prompt: '用一句话欢迎 Alice'\n");
+  const messages1 = await harness.prompt("用一句话欢迎 Alice");
+  console.log(`  ✓ 第 1 轮完成,收到 ${messages1.length} 条 messages\n`);
+
+  // 第 2 轮
+  console.log("  → 第 2 个 prompt: '用 echo 工具回显 hello'\n");
+  const messages2 = await harness.prompt("用 echo 工具回显 hello");
+  console.log(`  ✓ 第 2 轮完成,收到 ${messages2.length} 条 messages\n`);
+
+  // 验证 session 已自动写入真实对话
+  const harnessEntries = await harnessSession.getEntries();
+  console.log(`  ✓ session 自动记录了 ${harnessEntries.length} 条 entries:`);
+  harnessEntries.forEach((entry, i) => {
+    console.log(`    [${i.toString().padStart(2)}] ${describeEntry(entry)}`);
+  });
+  console.log();
+
+  // 关闭 harness
+  await harness.getHooks().dispose();
+  await harness.getHooks().clear();
+  harness.dispose();
+
+  // ── 阶段 10:展示文件路径 + 提示 ──
   console.log("=== 演示完成 ===\n");
   console.log("📄 持久化文件路径:");
-  console.log(`   ${metadata1.path}\n`);
+  console.log(`   ${metadata1.path}`);
+  console.log(`   ${harnessMeta.path}\n`);
   console.log("💡 你可以用以下命令查看 JSONL 内容:");
-  console.log(`   cat "${metadata1.path}" | head -20\n`);
+  console.log(`   cat "${metadata1.path}" | head -30\n`);
   console.log("💡 清理临时文件:");
   console.log(`   rm -rf "${tmpRoot}"\n`);
-
-  // 顺便演示 harness 集成:把 session 接到 AgentHarness
-  console.log("--- 附:AgentHarness + JSONL Session 集成示例 ---\n");
-  // 这里不实际跑 turn(避免依赖 streamFn),只演示构造
-  // 真实使用:
-  //   const harness = new AgentHarness({
-  //     model, tools, env,
-  //     session: reopened2,  // ← 接 JSONL session
-  //     streamFn: ...,
-  //   });
-  //   await harness.prompt("...");  // user/assistant 消息会自动 appendMessage
-  //   await harness.prompt("...");  // 同一 session 继续对话
-  console.log("  ℹ️  AgentHarness 接受 Session 实例,prompt 时自动 appendMessage");
-  console.log("  ℹ️  详细使用见 examples/01-basic.ts + examples/07-hooks.ts\n");
-
-  // 真实构造一次(只验证不报错,prompt 之前需要 streamFn 注入)
-  // 这里不实际调 prompt,只验证构造
-  try {
-    const harness = new AgentHarness({
-      model: mockModel,
-      tools: [],
-      env: env as any,
-      session: reopened2 as any,
-      systemPrompt: "演示 session 集成",
-    });
-    console.log(`  ✓ AgentHarness 构造成功,phase = ${harness.getPhase()}`);
-    console.log(`  ✓ session id: ${(await (harness.getSession() as any).getMetadata()).id.slice(0, 8)}`);
-    harness.dispose();
-  } catch (err) {
-    console.error(`  ❌ AgentHarness 构造失败:`, err);
-  }
 
   // 不要自动清理,让用户能查看文件
   // 如果传了 --clean 才清理

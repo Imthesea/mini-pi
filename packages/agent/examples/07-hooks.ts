@@ -1,5 +1,5 @@
 /**
- * Example 07: 钩子系统(hooks)演示
+ * Example 07: 钩子系统(hooks)演示 — 真实 DeepSeek API
  *
  * 演示:
  * 1. 3 个 hook 注册:
@@ -7,156 +7,48 @@
  *    - `context` handler:在 messages 头部注入"今天日期"提醒
  *    - observer:打印所有 hook 事件(用于调试)
  * 2. 验证 hook 实际生效:
- *    - tool_call block:工具被阻止,LLM 看到错误 toolResult
+ *    - tool_call block:工具被阻止,LLM 看到错误 toolResult 并改口
  *    - context 注入:LLM 收到的 messages 包含 reminder
+ * 3. 真实 DeepSeek 响应:
+ *    - 第 1 轮:用户让 LLM 删 `node_modules/old-pkg/something.js`
+ *      → LLM 调 delete_file → hook block → LLM 收到 error toolResult
+ *    - 第 2 轮:用户问"今天日期?" → context hook 注入 reminder → LLM 看到
  *
  * 运行: cd packages/agent && npx tsx examples/07-hooks.ts
+ *
+ * 真实 LLM 调用:需要设置 DEEPSEEK_API_KEY(代码自动从 packages/ai/.env 读取)
  */
 
 import { Type } from "typebox";
 import { AgentHarness } from "../src/harness/index.js";
-import {
-  AssistantMessageEventStream,
-  type AssistantMessage,
-  type Model,
-} from "@mimi/ai";
+import { createModels, deepseekProvider, envApiKey, type Model } from "@mimi/ai";
 import type { AgentMessage, AgentTool } from "../src/index.js";
 
-// ── Mock model + streamFn ──
+// ── 真实模型(DeepSeek) ──
 
-const mockModel: Model<any> = {
-  id: "mock-model",
-  name: "Mock Model",
-  api: "anthropic-messages",
-  provider: "mock",
-  baseUrl: "https://mock.invalid",
-  reasoning: false,
-  input: ["text"],
-  cost: { input: 0, output: 0 },
-  contextWindow: 200000,
-  maxTokens: 8192,
-};
-
-/**
- * 创建剧本式 mock streamFn:按 responses 数组顺序返回。
- */
-function createScriptedStreamFn(
-  responses: Array<
-    | { kind: "text"; text: string }
-    | {
-        kind: "toolCalls";
-        toolCalls: Array<{ id: string; name: string; arguments: any }>;
-        text?: string;
-      }
-  >,
-) {
-  let cursor = 0;
-  return (_model: Model<any>, _context: any) => {
-    const response = responses[cursor++];
-    const stream = new AssistantMessageEventStream();
-
-    if (!response) {
-      const err: AssistantMessage = {
-        role: "assistant",
-        content: [],
-        api: "anthropic-messages",
-        provider: "mock",
-        model: "mock-model",
-        usage: { input: 0, output: 0, totalTokens: 0, cost: { input: 0, output: 0, total: 0 } },
-        stopReason: "error",
-        errorMessage: "剧本耗尽",
-        timestamp: Date.now(),
-      };
-      queueMicrotask(() => {
-        stream.push({ type: "start", partial: err });
-        stream.push({ type: "error", reason: "error", error: err });
-      });
-      return stream;
-    }
-
-    const partial: AssistantMessage = {
-      role: "assistant",
-      content: [],
-      api: "anthropic-messages",
-      provider: "mock",
-      model: "mock-model",
-      usage: { input: 0, output: 0, totalTokens: 0, cost: { input: 0, output: 0, total: 0 } },
-      stopReason: response.kind === "toolCalls" ? "toolUse" : "stop",
-      timestamp: Date.now(),
-    };
-
-    const content: AssistantMessage["content"] = [];
-    if (response.kind === "toolCalls") {
-      if (response.text) content.push({ type: "text", text: response.text });
-      for (const tc of response.toolCalls) {
-        content.push({
-          type: "toolCall",
-          id: tc.id,
-          name: tc.name,
-          arguments: tc.arguments,
-        });
-      }
-    } else {
-      content.push({ type: "text", text: response.text });
-    }
-
-    queueMicrotask(() => {
-      stream.push({ type: "start", partial: { ...partial, content: [] } });
-      for (let i = 0; i < content.length; i++) {
-        const block = content[i];
-        if (block.type === "text") {
-          stream.push({
-            type: "text_start",
-            contentIndex: i,
-            partial: { ...partial, content: content.slice(0, i) },
-          });
-          stream.push({
-            type: "text_delta",
-            contentIndex: i,
-            delta: block.text,
-            partial: { ...partial, content: content.slice(0, i + 1) },
-          });
-          stream.push({
-            type: "text_end",
-            contentIndex: i,
-            content: block.text,
-            partial: { ...partial, content: content.slice(0, i + 1) },
-          });
-        } else if (block.type === "toolCall") {
-          stream.push({
-            type: "toolcall_start",
-            contentIndex: i,
-            partial: { ...partial, content: content.slice(0, i) },
-          });
-          stream.push({
-            type: "toolcall_end",
-            contentIndex: i,
-            toolCall: block,
-            partial: { ...partial, content: content.slice(0, i + 1) },
-          });
-        }
-      }
-      stream.push({
-        type: "done",
-        reason: "stop",
-        message: {
-          ...partial,
-          content,
-          stopReason: response.kind === "toolCalls" ? "toolUse" : "stop",
-        },
-      });
-    });
-
-    return stream;
-  };
+if (!envApiKey("DEEPSEEK_API_KEY")) {
+  console.error("❌ 未设置 DEEPSEEK_API_KEY,请在 packages/ai/.env 中配置。");
+  process.exit(1);
 }
+const models = createModels();
+models.set(deepseekProvider());
+const deepseekModel: Model<any> | undefined = models.getModel(
+  "deepseek",
+  "deepseek-v4-flash",
+);
+if (!deepseekModel) {
+  console.error("❌ 找不到模型 deepseek/deepseek-v4-flash");
+  process.exit(1);
+}
+const model = deepseekModel;
+console.log(`✅ DeepSeek 模型: ${model.name} (context: ${model.contextWindow.toLocaleString()} tokens)\n`);
 
 // ── Tool:delete_file(危险:可指定任意 path) ──
 
 const deleteFileTool: AgentTool = {
   name: "delete_file",
   label: "Delete File",
-  description: "删除指定路径的文件",
+  description: "删除指定路径的文件,返回删除结果",
   parameters: Type.Object({
     path: Type.String({ description: "要删除的文件路径" }),
   }),
@@ -184,11 +76,26 @@ function installBlockDangerousToolHook(
   blockedPrefix: string,
 ): { blocked: () => number } {
   const state = { blockedCount: 0 };
-  harness.getHooks().on("tool_call", () => {
-    // 实际应该读 toolCall 上下文判断 toolName / arguments
-    // 这里简化:用全局计数器演示 hook 被触发了
-    state.blockedCount++;
-    return { block: true, reason: `禁止删除 ${blockedPrefix} 下的文件` };
+  // 拿到 hook 注册接口
+  const hooks = harness.getHooks() as unknown as {
+    on: (type: string, handler: (event: any) => any) => () => void;
+  };
+  hooks.on("tool_call", (event: any) => {
+    // event 包含 toolCall(name + arguments)
+    const toolCall = event?.toolCall ?? event?.args?.toolCall;
+    const toolName = toolCall?.name ?? event?.toolName;
+    const args = toolCall?.arguments ?? event?.args;
+    if (toolName === "delete_file") {
+      const path = (args as { path?: string } | undefined)?.path ?? "";
+      if (path.includes(blockedPrefix)) {
+        state.blockedCount++;
+        return {
+          block: true,
+          reason: `禁止删除 ${blockedPrefix} 下的文件(尝试删除 ${path})`,
+        };
+      }
+    }
+    return undefined;
   });
   return { blocked: () => state.blockedCount };
 }
@@ -200,7 +107,10 @@ function installBlockDangerousToolHook(
  * 演示 `context` 事件 + 链式 messages 转换。
  */
 function installContextReminderHook(harness: AgentHarness): void {
-  harness.getHooks().on("context", (_event, ctx) => {
+  const hooks = harness.getHooks() as unknown as {
+    on: (type: string, handler: (event: any, ctx: any) => any) => () => void;
+  };
+  hooks.on("context", (_event: any, ctx: any) => {
     const reminder: AgentMessage = {
       role: "user",
       content: [
@@ -211,7 +121,7 @@ function installContextReminderHook(harness: AgentHarness): void {
       ],
       timestamp: Date.now(),
     };
-    return { messages: [reminder, ...ctx.messages] };
+    return { messages: [reminder, ...(ctx.messages as AgentMessage[])] };
   });
 }
 
@@ -222,7 +132,10 @@ function installContextReminderHook(harness: AgentHarness): void {
  */
 function installObserverLogger(harness: AgentHarness): string[] {
   const log: string[] = [];
-  harness.getHooks().observe((event) => {
+  const hooks = harness.getHooks() as unknown as {
+    observe: (handler: (event: any) => void) => () => void;
+  };
+  hooks.observe((event: any) => {
     const tag = `[hook:${event.type}]`;
     log.push(tag);
     console.log(`  🔍 ${tag}`);
@@ -233,39 +146,36 @@ function installObserverLogger(harness: AgentHarness): string[] {
 // ── 主流程 ──
 
 async function main() {
-  console.log("=== Example 07: 钩子系统(hooks)演示 ===\n");
+  console.log("=== Example 07: 钩子系统(hooks)演示 — 真实 DeepSeek ===\n");
 
-  // 剧本:第一轮 LLM 想删 node_modules 下的文件,被 hook 阻止
-  //      第二轮 LLM 看到错误信息,改成"我自己来"
-  const streamFn = createScriptedStreamFn([
-    {
-      kind: "toolCalls",
-      text: "我尝试删除文件",
-      toolCalls: [
-        {
-          id: "call_1",
-          name: "delete_file",
-          arguments: { path: "node_modules/foo/bar.js" },
-        },
-      ],
-    },
-    {
-      kind: "text",
-      text: "看到 hook 阻止后,我放弃了删除,直接告诉用户结果。",
-    },
-  ]);
-
-  // 构造 AgentHarness
+  // 构造 AgentHarness(真实模型 + 真实 streamFn)
+  // session 用一个最小可用占位即可(本例重点演示 hook 行为,不需要真实持久化)
+  // appendMessage 返回的 id 会在 console 里显示,这里用一个简单的自增 id
+  let entryIdSeq = 0;
   const harness = new AgentHarness({
-    model: mockModel,
+    model: model,
     tools: [deleteFileTool],
-    env: { readFile: async () => ({ ok: true, value: "" }) } as any,
+    env: {
+      readFile: async () => ({ ok: true, value: "" }),
+      writeFile: async () => ({ ok: true, value: undefined }),
+      appendFile: async () => ({ ok: true, value: undefined }),
+      mkdir: async () => ({ ok: true, value: undefined }),
+      readdir: async () => ({ ok: true, value: [] }),
+      stat: async () => ({ ok: true, value: { kind: "file", name: "", path: "" } }),
+      exists: async () => ({ ok: true, value: false }),
+      remove: async () => ({ ok: true, value: undefined }),
+      absolutePath: async () => ({ ok: true, value: "" }),
+      joinPath: async () => ({ ok: true, value: "" }),
+      cwd: process.cwd(),
+    } as any,
     session: {
       id: "hooks-demo",
-      appendMessage: async () => "mock-entry-id",
+      appendMessage: async () =>
+        `entry-${(++entryIdSeq).toString().padStart(4, "0")}`,
     } as any,
-    systemPrompt: "你是一个文件管理助手",
-    streamFn: streamFn as any,
+    systemPrompt:
+      "你是一个文件管理助手。用户会让你删除文件,你应该调用 delete_file 工具完成。如果工具被阻止,听从错误说明并改口。",
+    streamFn: (m: any, ctx: any, opts?: any) => models.stream(m, ctx, opts),
   });
 
   // ── 安装 hooks ──
@@ -280,17 +190,34 @@ async function main() {
 
   // 订阅 AgentHarness 事件(让 stream 端也能看到流)
   const subscription = harness.subscribe();
-  (async () => {
-    for await (const _event of subscription) {
-      // no-op,只让订阅存在
+  const subscriptionTask = (async () => {
+    for await (const event of subscription) {
+      // 打印 message_update 的文本增量
+      if (
+        event.type === "message_update" &&
+        event.assistantMessageEvent.type === "text_delta"
+      ) {
+        process.stdout.write(event.assistantMessageEvent.delta);
+      }
     }
   })();
 
   // 启动 turn
-  console.log("--- 启动 harness.prompt() ---\n");
-  const messages = await harness.prompt("帮我删除 node_modules/foo/bar.js");
-  await new Promise((r) => setTimeout(r, 20));
+  console.log("--- 启动 harness.prompt() 第 1 轮 ---\n");
+  console.log("  用户: 帮我删除 node_modules/old-pkg/something.js\n");
+  const messages1 = await harness.prompt("帮我删除 node_modules/old-pkg/something.js");
+  console.log("\n  ✓ 第 1 轮完成\n");
+
+  // 第 2 轮:问日期,验证 context hook 注入 reminder
+  console.log("--- 启动 harness.prompt() 第 2 轮 ---\n");
+  console.log("  用户: 今天是几号?\n");
+  const messages2 = await harness.prompt("今天是几号?");
+  console.log("\n  ✓ 第 2 轮完成\n");
+
+  // 等订阅拿到所有事件
+  await new Promise((r) => setTimeout(r, 100));
   subscription.cancel();
+  await subscriptionTask.catch(() => {});
 
   // ── 验证 ──
   console.log("\n=== 验证 hook 行为 ===\n");
@@ -324,7 +251,8 @@ async function main() {
   // 验证 2:tool_call hook 阻止了工具
   // 工具被 block → 会转成 error toolResult
   // 消息中应该有一个 toolResult with isError=true
-  const errorToolResults = messages.filter(
+  const allMessages: AgentMessage[] = [...messages1, ...messages2];
+  const errorToolResults = allMessages.filter(
     (m) => m.role === "toolResult" && m.isError === true,
   );
   if (errorToolResults.length > 0) {
@@ -374,6 +302,7 @@ async function main() {
   // 清理:dispose harness
   await harness.getHooks().dispose();
   await harness.getHooks().clear();
+  harness.dispose();
 }
 
 function describeMessage(m: AgentMessage): string {
