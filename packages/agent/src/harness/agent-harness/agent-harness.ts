@@ -59,6 +59,7 @@ import { EventBus } from "./event-bus.js";
 import type { Subscription } from "./event-bus.js";
 import { buildUserContent, extractSessionId } from "./helpers.js";
 import { bridgeAfterToolCall, bridgeBeforeToolCall } from "./hooks-bridge.js";
+import type { Session } from "../session/session.js";
 
 // ── AgentHarness 主类 ──
 
@@ -130,16 +131,40 @@ export class AgentHarness {
 
   /** 构造钩子系统需要的 context(由 setContext 同步更新) */
   #buildHookContext(): AgentHarnessHookContext {
+    const session = this.#options.session as Session<any> | undefined;
     return {
       harness: this,
       // session facade:Task 5 接入后填充真正的 session 引用
-      // 当前 Task 阶段:传空对象 {} 即可(emit 时不依赖 facade 内部数据)
-      session: this.#options.session ?? {},
+      // 提供 getId / getMessages(handler 用 facade 拿数据,不必直接 import Session)
+      // getId 返回 Promise<id>:因为 Session.getMetadata() 是 async
+      session: session
+        ? {
+            getId: () =>
+              session
+                .getMetadata()
+                .then((m) => m.id)
+                .catch(() => "unknown"),
+            getMessages: () => this.#loadSessionMessages(session),
+          }
+        : {},
       // models facade:Task 后续接入后填充
       models: {},
-      // messages:本 Task 阶段为空,Task 5 接入 session 后会从 session.getMessages() 拿
+      // messages:从 session 加载历史消息(handler 可读)
       messages: [],
     };
+  }
+
+  /**
+   * 从 session 加载历史消息(给 hook context 用)。
+   * 内部方法:供 #buildHookContext 调用,避免每次 hook emit 时全量加载。
+   */
+  async #loadSessionMessages(session: Session<any>): Promise<AgentMessage[]> {
+    try {
+      const context = await session.buildContext();
+      return context.messages;
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -408,6 +433,7 @@ export class AgentHarness {
     startHookResult?: { messages?: AgentMessage[]; systemPrompt?: string },
   ): Promise<AgentMessage[]> {
     const runtime = this.#runtime;
+    const session = this.#options.session as Session<any> | undefined;
 
     // 构造 user 消息
     const userMessage: AgentMessage = {
@@ -416,6 +442,18 @@ export class AgentHarness {
       timestamp: Date.now(),
     };
 
+    // ── 同步钩子 context(让 context 事件 handler 看到最新 session) ──
+    this._syncHookContext();
+
+    // ── Session 写入:append user message(Task 5 接入) ──
+    // fire-and-forget 不阻塞 turn;失败也不抛(session 写失败不阻塞对话)
+    if (session) {
+      void session.appendMessage(userMessage).catch((err) => {
+        // session 写入失败只记日志(不阻塞 turn)
+        console.error("[AgentHarness] session.appendMessage failed:", err);
+      });
+    }
+
     // 构造 system prompt(静态字符串或动态 provider)
     // 优先用 before_agent_start hook 注入的 systemPrompt,否则用 runtime 默认
     const baseSystemPrompt =
@@ -423,7 +461,7 @@ export class AgentHarness {
     const systemPromptResult = buildSystemPrompt(baseSystemPrompt, {
       model: runtime.model,
       tools: runtime.tools,
-      sessionId: extractSessionId(this.#options.session),
+      sessionId: extractSessionId(session),
       resources: runtime.resources,
     });
     const systemPrompt =
@@ -443,9 +481,6 @@ export class AgentHarness {
       messages: initialMessages,
       tools: runtime.tools,
     };
-
-    // 同步 hook context(让 context 事件的 handler 看到最新的 harness 状态)
-    this._syncHookContext();
 
     // emit context 事件(handler 可链式改 messages)
     const contextResult = (await this.#hooks.emit({ type: "context" })) as
@@ -467,11 +502,19 @@ export class AgentHarness {
     };
 
     // 调 runAgentLoop,转发事件到 EventBus
-    // message_end 事件时同时 emit 钩子系统的 message_end
+    // message_end 事件时:
+    // 1. emit 钩子系统的 message_end
+    // 2. 异步 append assistant / toolResult message 到 session
     return await runAgentLoop(initialMessages, context, config, async (event) => {
       if (event.type === "message_end") {
         // fire-and-forget,不阻塞事件转发
         void this.#hooks.emit({ type: "message_end" });
+        // session 写入:append 当前结束的 message
+        if (session) {
+          void session.appendMessage(event.message).catch((err) => {
+            console.error("[AgentHarness] session.appendMessage failed:", err);
+          });
+        }
       }
       await this.#emit(event);
     });

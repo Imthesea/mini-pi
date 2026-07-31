@@ -260,7 +260,10 @@ async function main() {
     model: mockModel,
     tools: [deleteFileTool],
     env: { readFile: async () => ({ ok: true, value: "" }) } as any,
-    session: { id: "hooks-demo" } as any,
+    session: {
+      id: "hooks-demo",
+      appendMessage: async () => "mock-entry-id",
+    } as any,
     systemPrompt: "你是一个文件管理助手",
     streamFn: streamFn as any,
   });

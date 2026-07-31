@@ -231,16 +231,17 @@ export type ResultOf<E> = E extends HookEvent<string, infer R>
  * 重要:handlers 拿到的是 facade 而非原始 session,避免 handler 误改内部状态。
  */
 export interface SessionFacade {
-  /** 获取 session id */
-  getId?(): string;
   /**
-   * 获取 session 当前 messages 列表(只读)。
+   * 获取 session id(可能为 Promise,因为 Session.getMetadata() 是 async)。
+   */
+  getId?(): string | Promise<string>;
+  /**
+   * 获取 session 当前 messages 列表(只读,可能为 Promise)。
    *
    * 用于 runContextSemantics 初始 messages 的来源。
-   * 当前 Task 阶段:agent-harness 尚未接入 session,getMessages 可能未实现,
-   * emit 时默认用 [] 作为兜底。
+   * Session.buildContext() 是 async,返回 Promise<AgentMessage[]>。
    */
-  getMessages?(): readonly unknown[];
+  getMessages?(): readonly unknown[] | Promise<readonly unknown[]>;
 }
 
 /**

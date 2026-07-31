@@ -142,11 +142,15 @@ async function main() {
   ]);
 
   // 构造 AgentHarness
+  // session 用 InMemorySessionRepo 创建一个简单对象(包含 appendMessage 即可)
   const harness = new AgentHarness({
     model: mockModel,
     tools: [echoTool],
     env: { readFile: async () => ({ ok: true, value: "" }) } as any,
-    session: { id: "demo-session" } as any,
+    session: {
+      id: "demo-session",
+      appendMessage: async () => "mock-entry-id",
+    } as any,
     systemPrompt: "你是一个有用的助手",
     streamFn: streamFn as any,
   });

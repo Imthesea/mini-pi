@@ -24,9 +24,36 @@ function makeOptions(overrides: Partial<AgentHarnessOptions> = {}): AgentHarness
     model: mockModel,
     tools: [],
     env: { readFile: async () => ({ ok: true, value: "" }) } as any,
-    session: { id: "sess-1" } as any,
+    // Task 5 接入 session 后,harness 会调 session.appendMessage
+    // 测试用 mock session:实现 appendMessage 等方法,记录调用
+    session: makeMockSession(),
     ...rest,
   };
+}
+
+/**
+ * 测试用 mock session。
+ *
+ * Task 5 接入后,harness 会调:
+ * - session.appendMessage(message)  →  push 到 messages 数组
+ * - session.getMetadata()           →  返回固定 id
+ * - session.buildContext()          →  返回 messages 包装
+ */
+function makeMockSession(id = "sess-1") {
+  const messages: any[] = [];
+  return {
+    id,
+    appendMessage: vi.fn(async (msg: any) => {
+      messages.push(msg);
+    }),
+    getMetadata: vi.fn(async () => ({ id, createdAt: new Date().toISOString() })),
+    buildContext: vi.fn(async () => ({ messages: [...messages] })),
+    getLeafId: vi.fn(async () => null),
+    setLeafId: vi.fn(async () => {}),
+    getEntries: vi.fn(async () => []),
+    // 给测试断言用
+    _messages: messages,
+  } as any;
 }
 
 /** 构造 harness 并注入 streamFn(经 options 透传) */
@@ -68,7 +95,7 @@ describe("AgentHarness prompt()", () => {
       model: mockModel,
       tools: [],
       env: {} as any,
-      session: {} as any,
+      session: makeMockSession(),
       streamFn: () => slowStream,
     } as any);
 
@@ -128,7 +155,7 @@ describe("AgentHarness prompt()", () => {
       model: mockModel,
       tools: [],
       env: {} as any,
-      session: {} as any,
+      session: makeMockSession(),
       streamFn: () => errorStream,
     } as any);
 

@@ -21,6 +21,78 @@ export {
 // ── 错误 ──
 export { AgentHarnessError, PhaseError, HarnessConfigError } from "./errors.js";
 
+// ── Session(Task 5 新增) ──
+//
+// Session 主类 + 树形 entry 类型 + Storage 接口 + 双后端 repo。
+// 用户使用 `JsonlSessionRepo` 持久化,`InMemorySessionRepo` 测试用。
+export {
+  Session,
+  buildContextEntries,
+  buildSessionContext,
+  defaultContextEntryTransform,
+  sessionEntryToContextMessages,
+  type ContextEntryTransform,
+  type CustomEntryContextMessageProjector,
+  type SessionContextBuildOptions,
+} from "./session/session.js";
+export {
+  type SessionStorage,
+  type SessionRepo,
+  type SessionCreateOptions,
+  type SessionForkOptions,
+  // JSONL 后端专用
+  type JsonlSessionRepoApi,
+  type JsonlSessionCreateOptions,
+  type JsonlSessionListOptions,
+  buildLeafEntry,
+} from "./session/storage.js";
+export {
+  type SessionTreeEntry,
+  type MessageEntry,
+  type ThinkingLevelChangeEntry,
+  type ModelChangeEntry,
+  type ActiveToolsChangeEntry,
+  type CompactionEntry,
+  type BranchSummaryEntry,
+  type CustomEntry,
+  type CustomMessageEntry,
+  type LabelEntry,
+  type SessionInfoEntry,
+  type LeafEntry,
+  type SessionMetadata,
+  type JsonlSessionMetadata,
+  type SessionContext,
+  type SessionErrorCode,
+  SessionError,
+} from "./session/types.js";
+export { InMemorySessionStorage } from "./session/repos/memory-storage.js";
+export { InMemorySessionRepo } from "./session/repos/memory-repo.js";
+export { JsonlSessionStorage } from "./session/repos/jsonl-storage.js";
+export { JsonlSessionRepo } from "./session/repos/jsonl-repo.js";
+
+// ── env(Task 5 新增) ──
+//
+// ExecutionEnv 接口 + NodeExecutionEnv 实现 + 错误类型。
+export {
+  type ExecutionEnv,
+  type ExecOptions,
+  type ExecResult,
+  type FileInfo,
+  type FileKind,
+  type FileErrorCode,
+  type ExecutionErrorCode,
+  type Result,
+  type ToFileSystemErrorOptions,
+  NodeExecutionEnv,
+  FileError,
+  ExecutionError,
+  ok,
+  err,
+  toFileSystemError,
+  toExecutionError,
+  getResultOrThrow,
+} from "./env/index.js";
+
 // ── 类型 ──
 export type {
   Skill,

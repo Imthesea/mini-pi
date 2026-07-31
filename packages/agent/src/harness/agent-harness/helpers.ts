@@ -6,6 +6,7 @@
  */
 
 import type { ImageContent, TextContent } from "@mimi/ai";
+import type { Session } from "../session/session.js";
 
 /** 构造 user 消息 content(支持文本 + 图片) */
 export function buildUserContent(
@@ -26,12 +27,23 @@ export function buildUserContent(
 
 /**
  * 提取 sessionId(各种形态兜底)。
- * Task 5 接入真正 Session 类后可简化为 session.id。
+ *
+ * 兼容:
+ * - Session 类(从 getMetadata() 同步拿 id 需要 promise,这里用兜底)
+ *   实际上 Session.getMetadata() 是 async,所以这里只接受**同步可拿**的 session
+ * - string:直接作为 id
+ * - { id: string } / { sessionId: string }:取字段
+ * - null/undefined:返回 "default"
+ *
+ * 注:对于真正的 Session 类(用 getMetadata().id),请直接 await session.getMetadata(),
+ *   或用 facade.getId()(handler 内)。
  */
-export function extractSessionId(session: any): string {
+export function extractSessionId(session: Session<any> | string | { id?: string; sessionId?: string } | null | undefined): string {
   if (!session) return "default";
   if (typeof session === "string") return session;
-  if (typeof session.id === "string") return session.id;
-  if (typeof session.sessionId === "string") return session.sessionId;
+  if (typeof (session as any).id === "string") return (session as any).id;
+  if (typeof (session as any).sessionId === "string") return (session as any).sessionId;
+  // Session 类无同步 id 字段,兜底用 "default"
   return "default";
 }
+
