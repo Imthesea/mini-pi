@@ -10,7 +10,7 @@
 
 **目标:** 从零搭建 `@mimi/agent` 包——完整可用的 Agent 运行时,提供 `AgentHarness` 主类、Session 双后端、压缩、钩子、Skills、Prompt templates 等核心能力。**全盘保留 pi 的 harness 设施,4500 行目标,完整优先于精简**。
 
-**当前进度(2026-07-31)**: Task 1-7 已完成,Task 8-10 待办。`@mimi/agent` 共 18 个源文件,~1200 行核心代码 + 34 个测试文件 / 450 测试通过。最新 commit: `54b7707` (Task 7 skills + prompt templates)。
+**当前进度(2026-07-31)**: Task 1-7 已完成,Task 8-10 待办。`@mimi/agent` 共 71 个源文件(其中 8 个为子目录 `index.ts` 公共 API 入口,63 个为业务实现,~9400 行)+ 34 个测试文件(~6900 行)/ 450 测试通过 + 6 个 examples(01/03/04/05/06/07,共 ~1700 行)。最新 commit: `54b7707` (Task 7 skills + prompt templates)。
 
 **架构:** 在 `packages/ai` 之上,提供会话化、可扩展、可持久化的 Agent 运行时。核心抽象:`AgentHarness` → `createTurnState()` → `executeTurn()` → 同步 session 写入。钩子系统是面向扩展的核心。
 

@@ -689,7 +689,7 @@ export class NodeExecutionEnv implements ExecutionEnv {
 
 完整 plan 见 [2026-07-30-phase02-agent-plan.md](../plans/2026-07-30-phase02-agent-plan.md)。
 
-> **当前进度(2026-07-31 Task 7 末尾)**:Task 1-7 已完成,Task 8-10 待办。`@mimi/agent` 共 ~25 个核心文件 + 6 个 examples(共 ~1300 行),34 个测试文件 / 450 测试通过。最新 commit: `54b7707`(Task 7 skills + prompt templates)。
+> **当前进度(2026-07-31 Task 7 末尾)**:Task 1-7 已完成,Task 8-10 待办。`@mimi/agent` 共 71 个源文件(其中 8 个为子目录 `index.ts` 公共 API 入口,63 个为业务实现,~9400 行)+ 34 个测试文件(~6900 行)/ 450 测试通过 + 6 个 examples(01/03/04/05/06/07,共 ~1700 行)。最新 commit: `54b7707`(Task 7 skills + prompt templates)。
 
 | Task | 内容 | 验证 |
 |------|------|------|
