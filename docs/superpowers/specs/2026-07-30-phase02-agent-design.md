@@ -716,3 +716,81 @@ export class NodeExecutionEnv implements ExecutionEnv {
 | 声明合并需要 TypeScript 5+ 配合 | 已在 tsconfig 中开启 `"declaration": true` 与 `"composite": true` |
 | 压缩 token 估算不准 | 用 `Model.contextWindow - reserveTokens` 作粗估,允许用户通过 `compaction.reserveTokens` 调整 |
 | `CustomAgentMessages` 的事件流处理 | 转换函数 `convertToLlm` 与 `buildAssistantMessage` 必须显式处理每个自定义类型,无 default fallthrough |
+
+---
+
+## 15. 实施偏差附录(2026-08-01 Phase 02 收尾)
+
+> 本节是 Phase 02 实施完成后,与原始 spec / plan 的偏差记录。供后续 Phase 参考,不影响已交付功能。
+
+### 15.1 规模与文件数偏差
+
+| 维度 | spec/plan 预估 | 实际 | 偏差 |
+|------|----------------|------|------|
+| 源文件数 | 71(Task 7 末尾) | 73(最终) | +2(Task 8 加 queue.ts + queue-bridge) |
+| 测试用例 | 450 | 499 | +49(Queue 19 + prompt 增量 20 + config 增量 8 + 调优) |
+| examples | 6 | 7 | +1(`08-custom-messages.ts`) |
+| 文档 | 5 篇 | 5 篇 | 0 |
+| Commit | 8 | 9 | +1(Task 8 单独 commit) |
+
+### 15.2 Hook 事件数偏差
+
+- spec 早期版本写 17 个核心 + 3 预声明 = 20 个
+- 实际 8 核心 + 12 预声明 = 20 个(2026-07-31 doc 同步 commit `956507b`)
+- 12 预声明中,只有 `queue_update` 实际启用(在 Task 8 期间)
+- 其余 9 个(`session_compact` / `session_tree` / `thinking_level_update` / `resources_update` / `tools_update` / `save_point` / `settled` / `before_provider_request` / `before_provider_payload` / `after_provider_response`)类型已声明,默认走 fire-and-forget 但不主动 emit
+
+### 15.3 AgentHarness 拆行偏差
+
+- spec 早期 soft limit 500 行(从工程原则沿用)
+- Task 3-7 期间 `agent-harness.ts` 在 479-495 行之间
+- Task 8 增量后,`agent-harness.ts` 实测 682 行(超 500 软限 182 行)
+- 已在文件头加 explicit justification(私有字段封装 + 主类作为业务入口,继续拆会破坏 `#` 字段封装)
+- 未来再加功能需进一步拆分(候选:`queue.ts` 中部分方法提取到 `queue-bridge.ts` / `subscription-factory.ts` 合并到主类)
+
+### 15.4 Session Entry 类型扩展
+
+- spec 原始列 5 种:`MessageEntry` / `BranchSummaryEntry` / `CompactionEntry` / `CustomEntry` / `LeafEntry`
+- 实际 11 种(2026-07-31 spec 同步 commit `24fa020`):增加 `ThinkingLevelChangeEntry` / `ModelChangeEntry` / `ActiveToolsChangeEntry` / `CustomMessageEntry` / `LabelEntry` / `SessionInfoEntry`
+- 这 6 个新类型用于支持 `setModel` / `setThinkingLevel` / `setResources` / label 检索 等运行时操作,所有变更都走 append-only
+
+### 15.5 文档输出偏差
+
+- spec 第 12 节定 5 篇英文文档
+- 实际 5 篇中文文档(用户偏好,沟通语言为中文)
+- 5 篇结构统一(概述 / 关键概念 / API 速查 / 流程图 / 已知限制)
+- 文件路径引用全部用 `file:///` 协议绝对路径(便于跨平台跳转)
+- 流程图用 ASCII 纯文本(避免 mermaid 渲染依赖)
+
+### 15.6 Skill / Template 数量偏差
+
+- spec 第 9 节只提"通过 resources 注入"
+- 实际额外规范:`loadSkillFromFile` 走 `ExecutionEnv.readFile`(不直读 fs,保证可移植)
+- Skill 名称唯一性由调用方保证,代码不检查
+- 占位符统一 `{{name}}`,未提供的占位符保留原样不抛错(避免破坏 markdown)
+
+### 15.7 队列实现偏差
+
+- spec 早期提到"5 种 QueueMode"(隐含 nextTurn 也有 mode)
+- 实际 `nextTurn` 不需要 QueueMode(只是 prompt 入口 prepend,语义与 steer/followUp 不同)
+- `QueueOpDeps` 接口依赖注入,保持 `#` 字段封装(plan 已规定)
+
+### 15.8 验证范围偏差
+
+- spec 第 13 节定:450+ tests pass,`tsc --noEmit` 0 错误
+- 实际最终验证:499 tests pass,`tsc --noEmit` 0 错误,`pnpm build` 0 warning,7 个 examples 全部 exit=0
+- 测试覆盖率:核心模块都有对应测试文件,平均每个源文件 5-8 个测试用例
+
+### 15.9 后续 Phase 需要注意的遗留问题
+
+1. `agent-harness.ts` 682 行,接近 700 行硬性心理上限;下次大改动前需拆分
+2. 9 个预声明 hook 事件未启用,需按需启用
+3. `resources_update` / `tools_update` / `thinking_level_update` 钩子未主动 emit
+4. JSONL 后端假设单进程写入,多进程并发会行交错
+5. `extractFileOpsFromMessage` 是启发式,不支持自定义工具 schema
+6. 压缩 token 估算不精确(`chars / 4` 启发式)
+7. CustomEntry 不会自动投影到 context(必须提供 `entryProjectors`)
+
+---
+
+**Phase 02 完成 ✅**(2026-08-01)
