@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import { AssistantMessageEventStream } from "@mimi/ai";
 import { AgentHarness } from "../../../src/harness/agent-harness/agent-harness.js";
 import { createMockStreamFn, mockModel } from "../../_helpers/mock-provider.js";
 import { PhaseError } from "../../../src/harness/errors.js";
@@ -162,6 +163,277 @@ describe("AgentHarness prompt()", () => {
     await harness.prompt("x");
     // 即使 LLM 出错,phase 也应回 idle(错误通过 stopReason 表达,不是 throw)
     expect(harness.getPhase()).toBe("idle");
+  });
+});
+
+// ── Task 8 增量:steer / followUp / nextTurn 队列方法测试 ──
+
+describe("AgentHarness steer / followUp / nextTurn", () => {
+  /**
+   * 工具:构造最小可用 harness(mock session + 默认 streamFn)。
+   * 不调 prompt,只测队列操作。
+   */
+  function makeHarness() {
+    return new AgentHarness({
+      model: mockModel,
+      tools: [],
+      env: {} as any,
+      session: makeMockSession(),
+    });
+  }
+
+  describe("steer 入队", () => {
+    it("调一次 steer,内部队列有 1 条", () => {
+      const h = makeHarness();
+      h.steer("修正方向");
+      // 通过 _drainSteerQueue 验证(因为队列是 # 私有)
+      const drained = h._drainSteerQueue();
+      expect(drained).toHaveLength(1);
+      // 无 images 时 content 是纯文本字符串
+      expect(drained[0].role).toBe("user");
+      expect((drained[0] as any).content).toBe("修正方向");
+    });
+
+    it("连续 steer 3 次,mode='all' 排空出 3 条", () => {
+      const h = makeHarness();
+      h.steer("a");
+      h.steer("b");
+      h.steer("c");
+      const drained = h._drainSteerQueue();
+      expect(drained).toHaveLength(3);
+      expect((drained[0] as any).content).toBe("a");
+      expect((drained[2] as any).content).toBe("c");
+    });
+
+    it("mode='one-at-a-time' 排空只出 1 条,剩余 2 条保留", () => {
+      const h = makeHarness();
+      h.setSteeringMode("one-at-a-time");
+      h.steer("a");
+      h.steer("b");
+      h.steer("c");
+      const drained1 = h._drainSteerQueue();
+      expect(drained1).toHaveLength(1);
+      expect((drained1[0] as any).content).toBe("a");
+      // 第二次排空取 b
+      const drained2 = h._drainSteerQueue();
+      expect(drained2).toHaveLength(1);
+      expect((drained2[0] as any).content).toBe("b");
+    });
+
+    it("steer 后队列再排空返回 []", () => {
+      const h = makeHarness();
+      h.steer("hi");
+      h._drainSteerQueue();
+      const drained = h._drainSteerQueue();
+      expect(drained).toEqual([]);
+    });
+
+    it("steer 不影响 phase(可在任意 phase 调,不会切 phase)", () => {
+      const h = makeHarness();
+      h._setPhase("turn");
+      expect(() => h.steer("插队")).not.toThrow();
+      // 切 turn 后 steer 不会改 phase
+      expect(h.getPhase()).toBe("turn");
+      h._setPhase("idle");
+    });
+  });
+
+  describe("followUp 入队", () => {
+    it("调一次 followUp,_drainFollowUpQueue 出 1 条", () => {
+      const h = makeHarness();
+      h.followUp("后续问题");
+      const drained = h._drainFollowUpQueue();
+      expect(drained).toHaveLength(1);
+      expect(drained[0].role).toBe("user");
+      expect((drained[0] as any).content).toBe("后续问题");
+    });
+
+    it("followUpMode='one-at-a-time' 排空只出 1 条", () => {
+      const h = makeHarness();
+      h.setFollowUpMode("one-at-a-time");
+      h.followUp("a");
+      h.followUp("b");
+      const drained = h._drainFollowUpQueue();
+      expect(drained).toHaveLength(1);
+      expect((drained[0] as any).content).toBe("a");
+      const drained2 = h._drainFollowUpQueue();
+      expect(drained2).toHaveLength(1);
+      expect((drained2[0] as any).content).toBe("b");
+    });
+  });
+
+  describe("nextTurn 入队", () => {
+    it("调一次 nextTurn,_drainNextTurnQueue 出 1 条", () => {
+      const h = makeHarness();
+      h.nextTurn("下次记得");
+      const drained = h._drainNextTurnQueue();
+      expect(drained).toHaveLength(1);
+      expect(drained[0].role).toBe("user");
+      expect((drained[0] as any).content).toBe("下次记得");
+    });
+
+    it("nextTurn 多次入队,排空按顺序出全部", () => {
+      const h = makeHarness();
+      h.nextTurn("first");
+      h.nextTurn("second");
+      h.nextTurn("third");
+      const drained = h._drainNextTurnQueue();
+      expect(drained).toHaveLength(3);
+      expect((drained[0] as any).content).toBe("first");
+      expect((drained[2] as any).content).toBe("third");
+    });
+
+    it("nextTurn 排空后队列为空,再次排空返回 []", () => {
+      const h = makeHarness();
+      h.nextTurn("hi");
+      h._drainNextTurnQueue();
+      const drained = h._drainNextTurnQueue();
+      expect(drained).toEqual([]);
+    });
+  });
+
+  describe("三种队列互不影响", () => {
+    it("steer / followUp / nextTurn 各管各的", () => {
+      const h = makeHarness();
+      h.steer("s1");
+      h.followUp("f1");
+      h.nextTurn("n1");
+      expect(h._drainSteerQueue()).toHaveLength(1);
+      expect(h._drainFollowUpQueue()).toHaveLength(1);
+      expect(h._drainNextTurnQueue()).toHaveLength(1);
+      // 各自再排空为空
+      expect(h._drainSteerQueue()).toEqual([]);
+      expect(h._drainFollowUpQueue()).toEqual([]);
+      expect(h._drainNextTurnQueue()).toEqual([]);
+    });
+  });
+
+  describe("queue_update 钩子触发", () => {
+    it("steer 触发 queue_update 钩子", async () => {
+      const h = makeHarness();
+      const fired: string[] = [];
+      h.getHooks().on("queue_update", () => {
+        fired.push("queue_update");
+        return undefined;
+      });
+      h.steer("hi");
+      // emit 是 fire-and-forget,等一拍
+      await new Promise((r) => setTimeout(r, 10));
+      expect(fired).toContain("queue_update");
+    });
+
+    it("followUp 触发 queue_update 钩子", async () => {
+      const h = makeHarness();
+      const fired: string[] = [];
+      h.getHooks().on("queue_update", () => {
+        fired.push("queue_update");
+        return undefined;
+      });
+      h.followUp("hi");
+      await new Promise((r) => setTimeout(r, 10));
+      expect(fired).toContain("queue_update");
+    });
+
+    it("nextTurn 触发 queue_update 钩子", async () => {
+      const h = makeHarness();
+      const fired: string[] = [];
+      h.getHooks().on("queue_update", () => {
+        fired.push("queue_update");
+        return undefined;
+      });
+      h.nextTurn("hi");
+      await new Promise((r) => setTimeout(r, 10));
+      expect(fired).toContain("queue_update");
+    });
+  });
+
+  describe("nextTurn 集成到 prompt 入口", () => {
+    it("prompt 之前 nextTurn 消息 prepend 到 user 消息前(LLM 看到正确顺序)", async () => {
+      // 用自定义 streamFn 捕获 LLM 看到的 context.messages
+      // 记录所有调用的 context,取第一次(初始 LLM 调用)
+      const capturedContexts: any[] = [];
+      const captureStreamFn: any = (_model: any, context: any) => {
+        capturedContexts.push(context);
+        // 返回一个简单的 done 流
+        const stream = new AssistantMessageEventStream();
+        queueMicrotask(() => {
+          const msg = makePartial();
+          msg.content = [{ type: "text", text: "ok" }];
+          stream.push({ type: "start", partial: msg });
+          stream.push({ type: "text_start", contentIndex: 0, partial: msg });
+          stream.push({ type: "text_end", contentIndex: 0, content: "ok", partial: msg });
+          stream.push({ type: "done", reason: "stop", message: msg });
+        });
+        return stream;
+      };
+
+      const h = new AgentHarness({
+        model: mockModel,
+        tools: [],
+        env: {} as any,
+        session: makeMockSession(),
+        streamFn: captureStreamFn,
+      } as any);
+      h.nextTurn("前置 A");
+      h.nextTurn("前置 B");
+
+      await h.prompt("user-text");
+
+      // LLM 第一次调用看到的 messages 头三条应是 [前置 A, 前置 B, user-text]
+      expect(capturedContexts.length).toBeGreaterThan(0);
+      const llmMessages = capturedContexts[0].messages;
+      expect(llmMessages.length).toBeGreaterThanOrEqual(3);
+      // 验证 nextTurn 消息 prepend 到 user 之前
+      expect((llmMessages[0] as any).content).toBe("前置 A");
+      expect((llmMessages[1] as any).content).toBe("前置 B");
+      expect((llmMessages[2] as any).content).toBe("user-text");
+    });
+
+    it("prompt 消费 nextTurn 后,再 nextTurn 排空返回 []", async () => {
+      const h = new AgentHarness({
+        model: mockModel,
+        tools: [],
+        env: {} as any,
+        session: makeMockSession(),
+        streamFn: createMockStreamFn([{ kind: "text", text: "ok" }]).streamFn,
+      } as any);
+      h.nextTurn("ctx");
+      await h.prompt("hi");
+      // 消费后 nextTurn 队列空
+      const drained = h._drainNextTurnQueue();
+      expect(drained).toEqual([]);
+    });
+  });
+
+  describe("dispose 后抛错", () => {
+    it("dispose 后 steer 抛错", () => {
+      const h = makeHarness();
+      h.dispose();
+      expect(() => h.steer("x")).toThrow(/dispose/i);
+    });
+
+    it("dispose 后 followUp 抛错", () => {
+      const h = makeHarness();
+      h.dispose();
+      expect(() => h.followUp("x")).toThrow(/dispose/i);
+    });
+
+    it("dispose 后 nextTurn 抛错", () => {
+      const h = makeHarness();
+      h.dispose();
+      expect(() => h.nextTurn("x")).toThrow(/dispose/i);
+    });
+
+    it("dispose 后清空所有队列", () => {
+      const h = makeHarness();
+      h.steer("s");
+      h.followUp("f");
+      h.nextTurn("n");
+      h.dispose();
+      expect(h._drainSteerQueue()).toEqual([]);
+      expect(h._drainFollowUpQueue()).toEqual([]);
+      expect(h._drainNextTurnQueue()).toEqual([]);
+    });
   });
 });
 

@@ -10,7 +10,7 @@
 
 **目标:** 从零搭建 `@mimi/agent` 包——完整可用的 Agent 运行时,提供 `AgentHarness` 主类、Session 双后端、压缩、钩子、Skills、Prompt templates 等核心能力。**全盘保留 pi 的 harness 设施,4500 行目标,完整优先于精简**。
 
-**当前进度(2026-07-31)**: Task 1-7 已完成,Task 8-10 待办。`@mimi/agent` 共 71 个源文件(其中 8 个为子目录 `index.ts` 公共 API 入口,63 个为业务实现,~9400 行)+ 34 个测试文件(~6900 行)/ 450 测试通过 + 6 个 examples(01/03/04/05/06/07,共 ~1700 行)。最新 commit: `54b7707` (Task 7 skills + prompt templates)。
+**当前进度(2026-08-01)**: Task 1-8 已完成,Task 9-10 待办。`@mimi/agent` 共 73 个源文件(其中 9 个为子目录 `index.ts` 公共 API 入口,64 个为业务实现,~9800 行)+ 36 个测试文件(~7400 行)/ 499 测试通过 + 7 个 examples(01/03/04/05/06/07/08,共 ~2000 行)。最新 commit: 待提交(feat(agent): queue ops + custom messages demo)。
 
 **架构:** 在 `packages/ai` 之上,提供会话化、可扩展、可持久化的 Agent 运行时。核心抽象:`AgentHarness` → `createTurnState()` → `executeTurn()` → 同步 session 写入。钩子系统是面向扩展的核心。
 
@@ -1081,14 +1081,66 @@ cd packages/agent && pnpm test agent-harness
 npx tsx examples/08-custom-messages.ts
 ```
 
-- [ ] Step 1: 写 `harness/queue.test.ts` + 跑挂(RED)→ 写 `harness/queue.ts`(enqueueSteer / drainSteerQueue / enqueueFollowUp / drainFollowUpQueue / enqueueNextTurn)→ 跑绿
-- [ ] Step 2: 写 `harness/agent-harness/queue.ts` 队列处理辅助函数(从 agent-harness.ts 抽,解决超 500 问题)
-- [ ] Step 3: 写 `config.test.ts` 增量测试 + 跑挂 -> 写 agent-harness.ts 增量 setter/getter -> 跑绿
-- [ ] Step 4: 写 `prompt.test.ts` 增量测试 + 跑挂 -> 写 agent-harness.ts 增量 `steer()` / `followUp()` / `nextTurn()` -> 跑绿
-- [ ] Step 5: 写 `examples/08-custom-messages.ts` 跑通
-- [ ] Step 6: `wc -l` 检查所有新文件,如有 > 500 行走工程原则 § 2.2 确认流程
-- [ ] Step 7: 暂停,展示 git diff 给用户审查
-- [ ] Step 8: 提交 commit `feat(agent): queue ops + custom messages demo`
+- [x] Step 1: 写 `harness/queue.test.ts` + 跑挂(RED)→ 写 `harness/queue.ts`(enqueueSteer / drainSteerQueue / enqueueFollowUp / drainFollowUpQueue / enqueueNextTurn)→ 跑绿
+- [x] Step 2: 写 `harness/agent-harness/queue.ts` 队列处理辅助函数(从 agent-harness.ts 抽,解决超 500 问题)
+- [x] Step 3: 写 `config.test.ts` 增量测试 + 跑挂 -> 写 agent-harness.ts 增量 setter/getter -> 跑绿
+- [x] Step 4: 写 `prompt.test.ts` 增量测试 + 跑挂 -> 写 agent-harness.ts 增量 `steer()` / `followUp()` / `nextTurn()` -> 跑绿
+- [x] Step 5: 写 `examples/08-custom-messages.ts` 跑通
+- [x] Step 6: `wc -l` 检查所有新文件,agent-harness.ts 682 行超 500 软限(已在文件头加 explicit justification);其余文件 < 500
+- [x] Step 7: 暂停,展示 git diff 给用户审查
+- [x] Step 8: 提交 commit `feat(agent): queue ops + custom messages demo`
+
+**Task 8 完成备注**(2026-08-01):
+- **新增 5 个源文件**:
+  - `src/harness/queue.ts` (131 行) — 5 个队列处理纯函数 + 内部 `drainByMode` helper
+  - `src/harness/agent-harness/queue.ts` (107 行) — `runSteerOp` / `runFollowUpOp` / `runNextTurnOp` + `QueueOpDeps` 依赖注入接口
+  - `__tests__/harness/queue.test.ts` (165 行) — 19 个纯函数测试
+  - `examples/08-custom-messages.ts` (240 行) — 真实 DeepSeek 演示
+  - `examples/08-custom-messages.d.ts` (23 行) — CustomAgentMessages 声明合并(独立 .d.ts 避免污染测试编译)
+- **新增 2 个测试文件修改**:
+  - `__tests__/harness/agent-harness/config.test.ts` (+57 行) — QueueMode getter/setter 10 个新测试
+  - `__tests__/harness/agent-harness/prompt.test.ts` (+247 行) — steer/followUp/nextTurn 20 个新测试
+- **修改 3 个文件**:
+  - `src/harness/agent-harness/agent-harness.ts` — 479 → 682 行(+203,主类增量)
+    - 队列状态字段:`#steerQueue` / `#followUpQueue` / `#nextTurnQueue` / `#steeringMode` / `#followUpMode`
+    - 4 个 QueueMode getter/setter:`getSteeringMode` / `setSteeringMode` / `getFollowUpMode` / `setFollowUpMode`
+    - 内部 drain helpers:`_drainSteerQueue` / `_drainFollowUpQueue` / `_drainNextTurnQueue`
+    - 3 个公共队列方法:`steer()` / `followUp()` / `nextTurn()`(委托 `agent-harness/queue.ts`)
+    - `#buildQueueOpDeps` 注入依赖(保持 # 字段封装)
+    - 构造时从 `options.steeringMode` / `options.followUpMode` 读取模式
+    - `dispose()` 末尾清空三个队列
+  - `src/harness/agent-harness/turn-execution.ts` — 86 → 180 行(+94)
+    - `ExecuteTurnArgs` 接口加 `getSteeringMessages` / `getFollowUpMessages` 回调
+    - `executeTurn` 接受 `nextTurnMessages` 参数(在 prompt 入口消费)
+    - 构造 `AgentLoopConfig` 时把两个回调注入给 agent-loop
+    - `initialMessages = [...nextTurnMessages, ...baseInitialMessages]` 实现 prepend
+  - `tsconfig.test.json` — `include` 排除 `examples`(避免 example 的声明合并污染测试编译)
+- **拆分原则执行**:
+  - `harness/queue.ts` 5 个纯函数合一个文件(避免"为对称而拆"3 个文件)
+  - `agent-harness/queue.ts` 协作层(纯函数 + AgentHarness 状态/钩子连接)
+  - 队列 getter/setter 和 `steer/followUp/nextTurn` 公共方法留在主类(避免破坏 # 字段封装)
+  - 任务执行时实测 agent-harness.ts 达 682 行,文件头有 explicit justification
+- **行数检查**:
+  - `agent-harness.ts` 682 行(超 500 软限 182 行,文件头已加 explicit justification)
+  - 其余新文件 < 500:`turn-execution.ts` 180、`agent-harness/queue.ts` 107、`harness/queue.ts` 131、`queue.test.ts` 165
+  - `prompt.test.ts` 419 行(< 500 警戒线,可接受)
+  - `examples/08-custom-messages.ts` 240 行 + `.d.ts` 23 行
+- **验证**:
+  - `pnpm test`:499 tests pass(vitest 35 文件全绿,`tsc -p tsconfig.test.json` 0 错误)
+  - `npx tsx examples/08-custom-messages.ts` 跑通:4 个演示全部成功
+    - Demo 1:QueueMode getter/setter(默认 'all' ↔ 'one-at-a-time')
+    - Demo 2:nextTurn 注入自定义 notification,LLM 看到 #engineering 频道并给出合理建议
+    - Demo 3:steer/followUp/nextTurn 三个队列独立,QueueMode='one-at-a-time' 逐步排空
+    - Demo 4:queue_update 钩子在每次入队时触发
+- **关键设计决策**:
+  - **声明合并放在独立 .d.ts 文件**:example 用 `08-custom-messages.d.ts` 扩展 `CustomAgentMessages.notification` 类型,避免污染 `tsconfig.test.json` 编译
+  - **队列排空模式共享**:`steer` 和 `followUp` 都用 `drainByMode` 内部 helper(消除重复)
+  - **nextTurn 没有 QueueMode**:仅在 prompt 入口一次性 prepend,语义与 steer/followUp 不同
+  - **依赖注入保持封装**:`QueueOpDeps` 接口让协作层(`agent-harness/queue.ts`)不直接访问主类 # 字段
+- **遗留 / 后续**:
+  - Task 9:5 篇中文文档(agent-harness / hooks / session / compaction / skills-and-templates)
+  - Task 10:全量验证 + Phase 02 收尾
+  - `agent-harness.ts` 682 行已超 500 软限但有 explicit justification,未来若再加功能需进一步拆分
 
 ---
 

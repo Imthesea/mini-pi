@@ -2,12 +2,12 @@
  * Turn 执行逻辑。
  *
  * 职责:
- * - 构造 user message
+ * - 构造 user 消息(+ nextTurn 前置消息)
  * - 同步钩子 context
  * - 写 user message 到 session
  * - 构造 system prompt
  * - emit context 钩子(handler 可链式改 messages)
- * - 构造 AgentContext + AgentLoopConfig
+ * - 构造 AgentContext + AgentLoopConfig(含 steer/follow-up 回调)
  * - 调 runAgentLoop,转发事件到 EventBus
  * - 在 message_end 事件时 emit 钩子 + 异步 append 到 session
  *
@@ -15,6 +15,10 @@
  * - #executeTurn 是 harness 里最长的方法(~90 行)
  * - 拆成纯函数后,agent-harness.ts 瘦身,turn 逻辑可独立测
  * - 通过 ExecuteTurnArgs 接口注入依赖,保持 # 字段封装
+ *
+ * Task 8 增量:
+ * - 接受 nextTurnMessages 参数,在 user 消息前 prepend
+ * - 通过 getSteeringMessages / getFollowUpMessages 回调注入队列排空逻辑
  */
 
 import type { Model } from "@mimi/ai";
@@ -66,6 +70,16 @@ export interface ExecuteTurnArgs {
   syncHookContext: () => void;
   /** 派发事件到 EventBus 的回调(由 AgentHarness.#emit 提供) */
   emit: (event: AgentHarnessEvent) => Promise<void>;
+  /**
+   * Task 8:steer 队列排空回调(由 AgentHarness._drainSteerQueue 提供)。
+   * agent-loop 在每个 turn 工具执行完后调用,把排空的消息注入为下一轮 user 消息。
+   */
+  getSteeringMessages: () => Promise<AgentMessage[]>;
+  /**
+   * Task 8:follow-up 队列排空回调(由 AgentHarness._drainFollowUpQueue 提供)。
+   * agent-loop 在 agent 原本要停时调用,让 agent 继续 turn。
+   */
+  getFollowUpMessages: () => Promise<AgentMessage[]>;
 }
 
 // ── executeTurn 主入口 ──
@@ -77,6 +91,7 @@ export interface ExecuteTurnArgs {
  * @param text               user 输入文本
  * @param options            可选 images
  * @param startHookResult    before_agent_start 钩子的返回(可能含 messages / systemPrompt 覆盖)
+ * @param nextTurnMessages   Task 8:nextTurn 队列排空结果(在 prompt 入口消费,prepend 到 user 消息)
  * @returns                  本次 turn 产生的消息列表
  */
 export async function executeTurn(
@@ -84,8 +99,18 @@ export async function executeTurn(
   text: string,
   options?: { images?: Array<{ data: string; mimeType: string }> },
   startHookResult?: { messages?: AgentMessage[]; systemPrompt?: string },
+  nextTurnMessages: readonly AgentMessage[] = [],
 ): Promise<AgentMessage[]> {
-  const { runtime, hooks, session, streamFn, syncHookContext, emit } = args;
+  const {
+    runtime,
+    hooks,
+    session,
+    streamFn,
+    syncHookContext,
+    emit,
+    getSteeringMessages,
+    getFollowUpMessages,
+  } = args;
 
   // 构造 user 消息
   const userMessage: AgentMessage = {
@@ -122,8 +147,13 @@ export async function executeTurn(
       : await systemPromptResult;
 
   // 初始 messages:用 before_agent_start 注入的,否则用 [userMessage]
-  const initialMessages: AgentMessage[] = startHookResult?.messages ?? [
+  // Task 8 增量:nextTurn 消息 prepend 到 user 消息之前(若 before_agent_start 未注入)
+  const baseInitialMessages: AgentMessage[] = startHookResult?.messages ?? [
     userMessage,
+  ];
+  const initialMessages: AgentMessage[] = [
+    ...nextTurnMessages,
+    ...baseInitialMessages,
   ];
 
   // 构造 AgentContext
@@ -150,6 +180,9 @@ export async function executeTurn(
     // 桥接:tool_call / tool_result 事件走钩子系统
     beforeToolCall: bridgeBeforeToolCall(hooks),
     afterToolCall: bridgeAfterToolCall(hooks),
+    // Task 8 增量:steer / follow-up 队列回调(agent-loop 在 turn 之间调)
+    getSteeringMessages,
+    getFollowUpMessages,
   };
 
   // 调 runAgentLoop,转发事件到 EventBus

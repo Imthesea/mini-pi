@@ -7,12 +7,13 @@
  *      4) 配置管理(getXxx / setXxx)
  *      5) 业务入口(prompt / compact / navigateTree / skill / promptFromTemplate)
  *      6) 钩子系统集成(emit 11 个核心事件)
+ *      7) 队列操作(steer / followUp / nextTurn) + 队列模式 setter/getter
  *
- * 行数说明(Task 7 末尾实测 **479 行**,< 500 软限,无需 justification):
- * - 本类含 5 个公开业务方法 + 7 个 setter + 6 个 getter + 完整 JSDoc
- * - 类已拆出 8 个子文件(event-bus / subscription-factory / hooks-bridge /
+ * 行数说明(Task 8 末尾实测):
+ * - 本类含 8 个公开业务方法 + 9 个 setter + 8 个 getter + 完整 JSDoc
+ * - 类已拆出 9 个子文件(event-bus / subscription-factory / hooks-bridge /
  *   turn-execution / hook-context-builder / compaction-ops / skill-ops /
- *   is-agent-harness)
+ *   is-agent-harness / queue)
  * - 进一步拆分需突破 # 私有字段封装,反而损害可读性,故保留为单类
  *
  * 拆分文件:
@@ -20,6 +21,7 @@
  * - hooks-bridge.ts(钩子 ↔ agent-loop 桥接)、turn-execution.ts(单 turn 执行)
  * - hook-context-builder.ts(钩子 context 构造)、compaction-ops.ts(压缩 + 切树)
  * - skill-ops.ts(skill / template 调起)、is-agent-harness.ts(类型守卫)
+ * - queue.ts(steer / followUp / nextTurn 委托)
  *
  * 钩子事件 emit 位置(11 个核心事件):
  * - before_agent_start → prompt()
@@ -33,14 +35,17 @@
  * - session_compact    → compact() 完成
  * - session_before_tree → navigateTree() 入口
  * - session_tree       → navigateTree() 完成
+ * - queue_update       → steer() / followUp() / nextTurn() 末尾
  *
  * Task 7 增量:skill() / promptFromTemplate()(调起 skill / template 走 prompt)
+ * Task 8 增量:steer() / followUp() / nextTurn()(队列操作) + QueueMode setter/getter
  */
 
 import type { Model } from "@mimi/ai";
 import type {
   AgentMessage,
   AgentTool,
+  QueueMode,
   ThinkingLevel,
 } from "../../types.js";
 import { assertPhase } from "../phase.js";
@@ -71,6 +76,13 @@ import {
   loadSessionMessages,
 } from "./hook-context-builder.js";
 import { runSkillOp, runPromptFromTemplateOp } from "./skill-ops.js";
+import {
+  runSteerOp,
+  runFollowUpOp,
+  runNextTurnOp,
+  type QueueOpDeps,
+} from "./queue.js";
+import { drainSteerQueue, drainFollowUpQueue } from "../queue.js";
 
 // ── AgentHarness 主类 ──
 
@@ -117,6 +129,32 @@ export class AgentHarness {
   /** 是否已经 dispose(防止重复清理) */
   #disposed = false;
 
+  // ── 队列状态(Task 8 新增) ──
+
+  /**
+   * steer 队列:中途插入的用户消息(高优先级,中断当前 LLM 流)。
+   * 调 steer(text) 时入队,agent-loop 的 getSteeringMessages 回调排空。
+   */
+  #steerQueue: readonly AgentMessage[] = [];
+
+  /**
+   * follow-up 队列:turn 结束后的额外用户消息(低优先级,自然延伸对话)。
+   * 调 followUp(text) 时入队,agent-loop 的 getFollowUpMessages 回调排空。
+   */
+  #followUpQueue: readonly AgentMessage[] = [];
+
+  /**
+   * nextTurn 队列:下一轮 prompt 之前的前置消息(预置上下文)。
+   * 调 nextTurn(text) 时入队,在 prompt 入口 prepend 到 user 消息。
+   */
+  #nextTurnQueue: readonly AgentMessage[] = [];
+
+  /** steer 队列的排空模式("all" / "one-at-a-time"),默认 "all" */
+  #steeringMode: QueueMode = "all";
+
+  /** follow-up 队列的排空模式("all" / "one-at-a-time"),默认 "all" */
+  #followUpMode: QueueMode = "all";
+
   // ── 构造 ──
 
   constructor(options: AgentHarnessOptions) {
@@ -131,6 +169,10 @@ export class AgentHarness {
       streamOptions: options.streamOptions,
       systemPrompt: options.systemPrompt,
     };
+
+    // Task 8 增量:初始化队列模式(默认 "all",从 options 覆盖)
+    this.#steeringMode = options.steeringMode ?? "all";
+    this.#followUpMode = options.followUpMode ?? "all";
 
     // 构造钩子系统(用户可注入自定义实现,默认用 DefaultAgentHarnessHooks)
     this.#hooks =
@@ -321,6 +363,46 @@ export class AgentHarness {
     this.#runtime.systemPrompt = prompt;
   }
 
+  // ── 队列模式 getter/setter(Task 8 新增) ──
+
+  /**
+   * 获取 steer 队列的排空模式。
+   *
+   * - "all":每次排空点(turn 工具执行后)把队列里所有消息注入
+   * - "one-at-a-time":每次排空点只注入最早一条,其余保留
+   */
+  getSteeringMode(): QueueMode {
+    return this.#steeringMode;
+  }
+
+  /**
+   * 设置 steer 队列的排空模式。
+   *
+   * 影响"下一次排空",不影响"当前已经在排空中的队列"。
+   */
+  setSteeringMode(mode: QueueMode): void {
+    this.#assertNotDisposed();
+    this.#steeringMode = mode;
+  }
+
+  /**
+   * 获取 follow-up 队列的排空模式。
+   *
+   * - "all":agent 原本要停时把队列里所有消息注入
+   * - "one-at-a-time":只注入最早一条,其余保留(agent 继续后下次再排空)
+   */
+  getFollowUpMode(): QueueMode {
+    return this.#followUpMode;
+  }
+
+  /**
+   * 设置 follow-up 队列的排空模式。
+   */
+  setFollowUpMode(mode: QueueMode): void {
+    this.#assertNotDisposed();
+    this.#followUpMode = mode;
+  }
+
   /** disposed 检查(私有,供 setter 调用) */
   #assertNotDisposed(): void {
     if (this.#disposed) {
@@ -370,6 +452,9 @@ export class AgentHarness {
   /**
    * 单次 turn 的实际执行(私有,委托给 turn-execution.ts)。
    *
+   * Task 8 增量:在 prompt 入口 drain nextTurn 队列,把排空的消息
+   * prepend 到初始 user 消息之前(预置上下文)。
+   *
    * @param text              user 输入文本
    * @param options           可选 images
    * @param startHookResult   before_agent_start 钩子的返回(可能含 messages / systemPrompt 覆盖)
@@ -379,6 +464,10 @@ export class AgentHarness {
     options?: { images?: Array<{ data: string; mimeType: string }> },
     startHookResult?: { messages?: AgentMessage[]; systemPrompt?: string },
   ): Promise<AgentMessage[]> {
+    // Task 8 增量:消费 nextTurn 队列(一次性全部排空,prepend 到 user 消息)
+    // nextTurn 消息由 nextTurn() 方法入队,只在 prompt 入口消费
+    const nextTurnMessages = this._drainNextTurnQueue();
+
     const session = this.#options.session as Session<any> | undefined;
     return executeTurn(
       {
@@ -388,10 +477,14 @@ export class AgentHarness {
         streamFn: this.#options.streamFn,
         syncHookContext: () => this._syncHookContext(),
         emit: (event) => this.#emit(event),
+        // Task 8 增量:steer / followUp 队列回调(agent-loop 在 turn 之间调用)
+        getSteeringMessages: async () => this._drainSteerQueue(),
+        getFollowUpMessages: async () => this._drainFollowUpQueue(),
       },
       text,
       options,
       startHookResult,
+      nextTurnMessages,
     );
   }
 
@@ -514,6 +607,132 @@ export class AgentHarness {
     );
   }
 
+  // ── 业务方法:队列操作(Task 8 新增) ──
+
+  /**
+   * 构造队列操作需要的依赖(把 # 字段通过 getter/setter 闭包暴露)。
+   *
+   * 内部方法:供 steer/followUp/nextTurn 三个方法以及 turn-execution.ts 使用。
+   * 不导出,外部无法直接访问。
+   */
+  #buildQueueOpDeps(): QueueOpDeps {
+    return {
+      getSteerQueue: () => this.#steerQueue,
+      setSteerQueue: (q) => {
+        this.#steerQueue = q;
+      },
+      getFollowUpQueue: () => this.#followUpQueue,
+      setFollowUpQueue: (q) => {
+        this.#followUpQueue = q;
+      },
+      getNextTurnQueue: () => this.#nextTurnQueue,
+      setNextTurnQueue: (q) => {
+        this.#nextTurnQueue = q;
+      },
+      hooks: this.#hooks,
+    };
+  }
+
+  /**
+   * 内部使用:排空 steer 队列(turn-execution 调)。
+   *
+   * 行为:按当前 steeringMode 排空,把排空结果写回 #steerQueue,
+   *       返回排空的消息列表。
+   *
+   * @returns 排空的 steer 消息(若排空模式为 "one-at-a-time" 可能为 1 条;若为 "all" 则是全部)
+   */
+  _drainSteerQueue(): AgentMessage[] {
+    const result = drainSteerQueue(this.#steerQueue, this.#steeringMode);
+    this.#steerQueue = result.remaining;
+    return result.drained;
+  }
+
+  /**
+   * 内部使用:排空 follow-up 队列(turn-execution 调)。
+   *
+   * @returns 排空的 follow-up 消息
+   */
+  _drainFollowUpQueue(): AgentMessage[] {
+    const result = drainFollowUpQueue(this.#followUpQueue, this.#followUpMode);
+    this.#followUpQueue = result.remaining;
+    return result.drained;
+  }
+
+  /**
+   * 内部使用:排空 nextTurn 队列(在 prompt 入口消费)。
+   *
+   * nextTurn 没有 QueueMode 概念,一次性全部排空(按入队顺序 prepend 到 user 消息)。
+   *
+   * @returns 排空的 nextTurn 消息
+   */
+  _drainNextTurnQueue(): AgentMessage[] {
+    const drained = [...this.#nextTurnQueue];
+    this.#nextTurnQueue = [];
+    return drained;
+  }
+
+  /**
+   * 中途插入用户消息(steer 队列)。
+   *
+   * 行为:把消息入队 + emit `queue_update` 钩子。
+   * 实际投递由 agent-loop 的 getSteeringMessages 回调负责
+   * (在每个 turn 工具执行完后排空,注入为下一轮 user 消息)。
+   *
+   * 不处理 phase:可在任意 phase 调,即使在 turn 中也行。
+   *
+   * @param text    user 文本
+   * @param images  可选图片
+   */
+  steer(
+    text: string,
+    images?: Array<{ data: string; mimeType: string }>,
+  ): void {
+    this.#assertNotDisposed();
+    runSteerOp(this.#buildQueueOpDeps(), text, images);
+  }
+
+  /**
+   * 排队一个用户消息,等当前 turn 自然结束再投递(follow-up 队列)。
+   *
+   * 行为:把消息入队 + emit `queue_update` 钩子。
+   * 实际投递由 agent-loop 的 getFollowUpMessages 回调负责
+   * (在 agent 原本要停时排空,让 agent 继续 turn)。
+   *
+   * 不处理 phase。
+   *
+   * @param text    user 文本
+   * @param images  可选图片
+   */
+  followUp(
+    text: string,
+    images?: Array<{ data: string; mimeType: string }>,
+  ): void {
+    this.#assertNotDisposed();
+    runFollowUpOp(this.#buildQueueOpDeps(), text, images);
+  }
+
+  /**
+   * 在下一轮 user 消息之前插入前置消息(nextTurn 队列)。
+   *
+   * 行为:把消息入队 + emit `queue_update` 钩子。
+   * 实际消费:下一次 harness.prompt() 入口会把 nextTurn 队列全部消息
+   *         按入队顺序 prepend 到 user 消息之前,然后清空队列。
+   *
+   * 不处理 phase。
+   *
+   * 用途:在 prompt 之间预置上下文(例如附上历史状态、当前时间、附件说明等)。
+   *
+   * @param text    user 文本
+   * @param images  可选图片
+   */
+  nextTurn(
+    text: string,
+    images?: Array<{ data: string; mimeType: string }>,
+  ): void {
+    this.#assertNotDisposed();
+    runNextTurnOp(this.#buildQueueOpDeps(), text, images);
+  }
+
   // ── 内部方法 ──
 
   /** 派发事件到所有订阅者 */
@@ -539,5 +758,9 @@ export class AgentHarness {
     this.#disposed = true;
     this.abort();
     this.#eventBus.clear();
+    // 清空三个队列(防止 dispose 后还有遗留消息)
+    this.#steerQueue = [];
+    this.#followUpQueue = [];
+    this.#nextTurnQueue = [];
   }
 }
