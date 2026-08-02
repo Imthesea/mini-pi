@@ -240,14 +240,8 @@ async function main() {
       deepseekModels.stream(model, context as any, options),
   });
 
-  // 订阅事件(可选)
-  const sub = harness.subscribe();
-  (async () => {
-    for await (const evt of sub) {
-      // 静默消费,避免干扰主输出
-      void evt;
-    }
-  })();
+  // 订阅事件(可选,静默消费)
+  const unsubscribe = harness.subscribe(() => {});
 
   // 4 轮对话
   const turns: UserMessage[] = [
@@ -348,8 +342,7 @@ async function main() {
   }
 
   // 关闭订阅
-  sub.cancel();
-  harness.dispose();
+  unsubscribe();
 
   console.log("--- 演示结束 ---\n");
   console.log(`📁 Session 文件位置: ${metadata.path}`);

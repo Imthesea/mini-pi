@@ -62,7 +62,7 @@ export {
 // Task 11 重构:isAgentHarness 改主类 static 方法,改用 AgentHarness.isAgentHarness(...)
 export {
   AgentHarness,
-  type Subscription,
+  type AgentHarnessListener,
   // Phase
   type AgentHarnessPhase,
   PHASE_TRANSITIONS,
@@ -98,7 +98,7 @@ export {
   // 钩子系统(Task 4 新增)
   DefaultAgentHarnessHooks,
   type DefaultAgentHarnessHooksOptions,
-  // 8 核心事件类型
+  // 事件类型(12 个实际 emit)
   type ContextHookEvent,
   type BeforeAgentStartHookEvent,
   type ToolCallHookEvent,
@@ -107,27 +107,16 @@ export {
   type SessionBeforeCompactHookEvent,
   type ModelUpdateHookEvent,
   type AbortHookEvent,
-  // 12 预声明事件类型
-  type BeforeProviderRequestHookEvent,
-  type BeforeProviderPayloadHookEvent,
-  type AfterProviderResponseHookEvent,
-  type SessionCompactHookEvent,
   type SessionBeforeTreeHookEvent,
+  type SessionCompactHookEvent,
   type SessionTreeHookEvent,
-  type ThinkingLevelUpdateHookEvent,
-  type ResourcesUpdateHookEvent,
-  type ToolsUpdateHookEvent,
   type QueueUpdateHookEvent,
-  type SavePointHookEvent,
-  type SettledHookEvent,
   // 钩子公共联合类型
   type AgentHarnessHookEvent,
   type AgentHarnessHookName,
   type AgentHarnessHookContext,
-  type AgentHarnessHookContextFacade,
   type ResultOf,
   type SessionFacade,
-  type ModelFacade,
   // Session(Task 5 新增)
   Session,
   buildContextEntries,

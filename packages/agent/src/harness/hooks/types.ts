@@ -2,15 +2,14 @@
  * 钩子系统公共类型。
  *
  * 文件定位:
- * - 20 个事件类型(8 核心 + 12 预声明)集中声明
+ * - 8 个核心事件类型集中声明
  * - AgentHarnessHookEvent 是它们的联合
  * - 公共类型:AgentHarnessHookContext / ResultOf / AgentHarnessHookName
- * - 门面接口:AgentHarnessHookContextFacade / SessionFacade / ModelFacade
+ * - SessionFacade:handler 通过 ctx.session 访问 session 的只读视图
  *
  * 设计原则:
  * - 事件类型基于 harness/types/harness.ts 的 HookEvent 泛型,带幻影结果
- * - 12 个预声明事件类型已定义但未在 agent-harness 中 emit(等后续 Task 启用)
- * - AgentHarnessHookEvent 是 DefaultAgentHarnessHooks<E, Ctx> 的 E 参数
+ * - 只声明实际 emit 的事件;未来新增事件时按需补充
  */
 
 import type {
@@ -24,9 +23,9 @@ import type {
   AgentToolCall,
   ThinkingLevel,
 } from "../../types.js";
-import type { AgentHarnessPhase } from "../phase.js";
+import type { AgentHarnessResources } from "../types/options.js";
 
-// ── 8 个核心事件(本 Task 启用) ──
+// ── 8 个核心事件 ──
 
 /**
  * context 事件:转换发送给 LLM 的消息链。
@@ -42,13 +41,29 @@ export type ContextHookEvent = HookEvent<
 /**
  * before_agent_start 事件:agent 启动前。
  *
- * 语义:fire-and-forget,但可返回 messages / systemPrompt 修改。
+ * 语义:收集 handler 返回的 { messages?, systemPrompt? }(字段级累积,后者胜)。
+ * harness.prompt() 会把返回的 messages 追加到用户消息之后、systemPrompt 作为基础 system prompt。
  * 触发时机:harness.prompt() 启动时(进入 LLM 调用前)。
+ *
+ * 事件携带当前轮入参(与 pi 1:1 对齐,handler 可读到再决定是否覆盖):
+ * - `prompt`:本轮用户输入文本
+ * - `images`:本轮用户输入图片(可选)
+ * - `systemPrompt`:当前已拼好的 system prompt(含 skills 块);返回 systemPrompt 会整体覆盖它
+ * - `resources`:当前扩展资源(如 skills)
  */
 export type BeforeAgentStartHookEvent = HookEvent<
   "before_agent_start",
   { messages?: AgentMessage[]; systemPrompt?: string }
->;
+> & {
+  /** 本轮用户输入文本 */
+  prompt: string;
+  /** 本轮用户输入图片(可选) */
+  images?: Array<{ data: string; mimeType: string }>;
+  /** 当前已拼好的 system prompt(含 skills 块);返回 systemPrompt 可整体覆盖 */
+  systemPrompt: string;
+  /** 当前扩展资源(供 handler 参考,如 skills) */
+  resources: AgentHarnessResources;
+};
 
 /**
  * tool_call 事件:工具调用前拦截。
@@ -88,12 +103,7 @@ export type ToolResultHookEvent = HookEvent<
   }
 >;
 
-/**
- * message_end 事件:消息结束时通知。
- *
- * 语义:fire-and-forget(只观察)。
- * 触发时机:每条 message 派发 message_end 时。
- */
+/** message_end 事件:消息结束时通知(语义:fire-and-forget,只观察)。 */
 export type MessageEndHookEvent = HookEvent<"message_end", void>;
 
 /**
@@ -107,46 +117,20 @@ export type SessionBeforeCompactHookEvent = HookEvent<
   { cancel?: boolean; compaction?: unknown }
 >;
 
-/**
- * model_update 事件:模型变更通知。
- *
- * 语义:fire-and-forget(只观察)。
- * 触发时机:调用 harness.setModel() 时。
- */
+/** model_update 事件:模型变更通知(语义:fire-and-forget,只观察)。 */
 export type ModelUpdateHookEvent = HookEvent<"model_update", void>;
 
-/**
- * abort 事件:终止通知。
- *
- * 语义:fire-and-forget(只观察)。
- * 触发时机:harness.abort() 被调用时。
- */
+/** abort 事件:终止通知(语义:fire-and-forget,只观察)。 */
 export type AbortHookEvent = HookEvent<"abort", void>;
 
-// ── 12 个预声明事件(Task 4 阶段不 emit,只占位) ──
+// ── 其余实际 emit 的事件 ──
 
-/** before_provider_request 事件:provider 请求前可改 streamOptions(预声明) */
-export type BeforeProviderRequestHookEvent = HookEvent<
-  "before_provider_request",
-  { streamOptions?: unknown }
->;
-
-/** before_provider_payload 事件:provider 请求体可改(预声明) */
-export type BeforeProviderPayloadHookEvent = HookEvent<
-  "before_provider_payload",
-  { payload: unknown }
->;
-
-/** after_provider_response 事件:provider 返回后只读观察(预声明) */
-export type AfterProviderResponseHookEvent = HookEvent<
-  "after_provider_response",
-  void
->;
-
-/** session_compact 事件:压缩完成后通知(预声明) */
-export type SessionCompactHookEvent = HookEvent<"session_compact", void>;
-
-/** session_before_tree 事件:树形跳转前可拦截(预声明) */
+/**
+ * session_before_tree 事件:树形跳转前可拦截。
+ *
+ * 语义:遇 cancel=true 取消跳转;可返回 summary 注入已有结果。
+ * 触发时机:harness.navigateTree() 启动时。
+ */
 export type SessionBeforeTreeHookEvent = HookEvent<
   "session_before_tree",
   {
@@ -158,34 +142,19 @@ export type SessionBeforeTreeHookEvent = HookEvent<
   }
 >;
 
-/** session_tree 事件:树形跳转完成后通知(预声明) */
+/** session_compact 事件:压缩完成后通知(语义:fire-and-forget,只观察)。 */
+export type SessionCompactHookEvent = HookEvent<"session_compact", void>;
+
+/** session_tree 事件:树形跳转完成后通知(语义:fire-and-forget,只观察)。 */
 export type SessionTreeHookEvent = HookEvent<"session_tree", void>;
 
-/** thinking_level_update 事件:thinking level 变更(预声明) */
-export type ThinkingLevelUpdateHookEvent = HookEvent<
-  "thinking_level_update",
-  void
->;
-
-/** resources_update 事件:resources 变更(预声明) */
-export type ResourcesUpdateHookEvent = HookEvent<"resources_update", void>;
-
-/** tools_update 事件:tools 变更(预声明) */
-export type ToolsUpdateHookEvent = HookEvent<"tools_update", void>;
-
-/** queue_update 事件:队列变化(预声明) */
+/** queue_update 事件:队列变化通知(语义:fire-and-forget,只观察)。 */
 export type QueueUpdateHookEvent = HookEvent<"queue_update", void>;
-
-/** save_point 事件:保存点通知(预声明) */
-export type SavePointHookEvent = HookEvent<"save_point", void>;
-
-/** settled 事件:操作结算通知(预声明) */
-export type SettledHookEvent = HookEvent<"settled", void>;
 
 // ── 公共联合类型 ──
 
 /**
- * 20 个事件的联合(8 核心 + 12 预声明)。
+ * 12 个实际 emit 事件的联合。
  *
  * 作为 DefaultAgentHarnessHooks 的 E 参数。
  * 配合 ResultOf<TEvent> 可以在 emit 时推导返回类型。
@@ -199,24 +168,12 @@ export type AgentHarnessHookEvent =
   | SessionBeforeCompactHookEvent
   | ModelUpdateHookEvent
   | AbortHookEvent
-  | BeforeProviderRequestHookEvent
-  | BeforeProviderPayloadHookEvent
-  | AfterProviderResponseHookEvent
-  | SessionCompactHookEvent
   | SessionBeforeTreeHookEvent
+  | SessionCompactHookEvent
   | SessionTreeHookEvent
-  | ThinkingLevelUpdateHookEvent
-  | ResourcesUpdateHookEvent
-  | ToolsUpdateHookEvent
-  | QueueUpdateHookEvent
-  | SavePointHookEvent
-  | SettledHookEvent;
+  | QueueUpdateHookEvent;
 
-/**
- * 20 个事件名的字面量联合。
- *
- * 用途:限制 type 参数,避免拼写错误。
- */
+/** 12 个事件名的字面量联合(用途:限制 type 参数,避免拼写错误)。 */
 export type AgentHarnessHookName = AgentHarnessHookEvent["type"];
 
 /**
@@ -243,13 +200,10 @@ export type ResultOf<E> = E extends HookEvent<string, infer R>
 /**
  * Session 门面:handlers 通过 ctx.session 访问 session 的只读视图。
  *
- * 当前 Task 阶段为占位,后续 Task 5 接入 Session 后充实。
  * 重要:handlers 拿到的是 facade 而非原始 session,避免 handler 误改内部状态。
  */
 export interface SessionFacade {
-  /**
-   * 获取 session id(可能为 Promise,因为 Session.getMetadata() 是 async)。
-   */
+  /** 获取 session id(可能为 Promise,因为 Session.getMetadata() 是 async)。 */
   getId?(): string | Promise<string>;
   /**
    * 获取 session 当前 messages 列表(只读,可能为 Promise)。
@@ -261,90 +215,29 @@ export interface SessionFacade {
 }
 
 /**
- * Model 门面:handlers 通过 ctx.models 访问 model 集合的只读视图。
- *
- * 当前 Task 阶段为占位,后续 Task 充实(可能是 @mimi/ai 的 models 集合)。
- */
-export interface ModelFacade {
-  /** 获取当前 model(只读) */
-  getCurrent?(): unknown;
-}
-
-/**
- * Harness 门面:handlers 通过 ctx.harness 访问 harness 的只读视图。
- *
- * 重要:**不**暴露 setter,handler 只能读取状态、不能修改。
- * 这避免 handler 误改 harness 配置引发竞态。
- *
- * 本 Task 阶段只暴露最常用 getter,后续 Task 按需扩展。
- */
-export interface AgentHarnessHookContextFacade {
-  /** 获取当前 model */
-  getModel(): unknown;
-  /** 获取当前工具集合 */
-  getTools(): readonly unknown[];
-  /** 获取当前 phase */
-  getPhase(): AgentHarnessPhase;
-}
-
-/**
  * 钩子 context:emit 时传入 handler 的"环境信息"。
  *
  * 包含:
  * - harness:AgentHarness 实例(handler 拿到的是原始引用,需自行保证只读)
  * - session:Session 只读 facade
- * - models:Model 集合只读 facade
  * - messages:当前会话的 messages 列表(context 事件 handler 用它做链式转换)
  *
  * messages 字段必填(可空数组 []):这样 context 事件的 handler
  * 可以直接从 ctx.messages 读,emit 路由时不用构造临时 ctx。
- *
- * 当前 Task 阶段:agent-harness 尚未接入 session,默认 []。
- * 后续 Task 5 接入 session 后,emit context 前会用 session.getMessages() 填充。
  */
 export interface AgentHarnessHookContext {
-  /** Harness 实例(handler 收到原始引用,本 Task 阶段不强制只读) */
+  /** Harness 实例(handler 收到原始引用) */
   harness: any;
-  /** Session facade(占位) */
+  /** Session 只读门面 */
   session: SessionFacade;
-  /** Model facade(占位) */
-  models: ModelFacade;
   /**
    * 当前会话的 messages 列表。
    *
    * - context 事件的 handler 从这里读 messages 做链式转换
    * - 其他事件的 handler 可以忽略此字段
-   * - 必填:AgentHarnessHookContext 构造时必须提供(可空数组 [])
    */
   messages: AgentMessage[];
 }
 
-/**
- * 钩子 context provider 的形状:emit 时如何给 handler 注入 context。
- *
- * 语义上是一个 AsyncIterable,允许在多个 emit 之间流式提供 ctx。
- * 当前 Task 阶段:DefaultAgentHarnessHooks 内部直接持有 context 引用,
- * 这个类型主要为未来扩展(动态 context)留接口。
- */
-export interface HookContextProvider {
-  [Symbol.asyncIterator](): AsyncIterator<AgentHarnessHookContext>;
-}
-
-// ── 公共类型重导出 ──
-//
-// 把 hook 相关的类型在 harness 层重新聚合,避免外部 import 散落各处。
-// 这些类型在 DefaultAgentHarnessHooks<E, Ctx> 签名中使用。
-
-/** HookHandler 重新导出(避免外部 import 散落) */
 export type { HookHandler, HookObserver };
-
-/** 钩子订阅句柄:可 for await 迭代事件 */
-export interface HookSubscription {
-  /** 异步迭代器(预留,本 Task 阶段未启用) */
-  [Symbol.asyncIterator](): AsyncIterator<AgentHarnessHookEvent>;
-  /** 取消订阅 */
-  cancel(): void;
-}
-
-/** Thinking level 重新导出,方便 handler 类型推导 */
 export type { ThinkingLevel };

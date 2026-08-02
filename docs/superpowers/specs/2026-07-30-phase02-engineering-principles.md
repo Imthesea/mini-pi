@@ -140,7 +140,6 @@ class AgentHarness {
 ```ts
 // ❌ 反模式
 async compact(): Promise<string | undefined> {
-  this.#assertNotDisposed();
   return runCompactOp({ session, model, hooks, streamFn });  // 4 个 deps
 }
 // + runCompactOp(deps, customInstructions) { ... }  // 协作层 60 行

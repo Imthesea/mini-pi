@@ -360,6 +360,18 @@ $ npx tsx examples/08-custom-messages.ts  # exit=0
 
 ---
 
+## 后续更新(2026-08-02,对照原 pi 复查)
+
+对照 `F:\allProject\githubProject\pi` 源码复查,发现 3 处翻译差异,均已修复并补测试:
+
+1. **`before_agent_start` 补入参**(重大):原 pi 的 emit 携带 `prompt` / `images` / `systemPrompt` / `resources`,my-mimipi 之前只传 `{ type }`,导致 handler 读不到"当前已拼好的 systemPrompt"、只能盲目覆盖。已补齐事件类型 + harness 调用 + 文档。
+2. **`buildSystemPrompt` 统一 async**:原实现返回 `string | Promise<string>` 半异步 API(内部分叉、调用方 await 一个可能非 Promise 的值),已改为始终返回 `Promise<string>`。
+3. **`drainQueue` 消费通知 + 回滚**:原实现同步、消费时无 `queue_update` 通知、无失败回滚;已对齐 pi 的 `drainQueuedMessages`(消费后 emit `queue_update`,失败 `queue.unshift(...messages)` 回滚)。
+
+验证:`pnpm test`(vitest 438/438 + tsc 0 错误)+ `tsc -p tsconfig.json` 0 错误。
+
+---
+
 ## 总结
 
 Phase 02 从 2026-07-30 启动,2026-08-01 完成,共历时 3 天,9 个 commit,产出:

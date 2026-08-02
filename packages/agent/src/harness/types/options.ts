@@ -7,6 +7,10 @@
 
 import type { Model } from "@mimi/ai";
 import type { AgentTool, ThinkingLevel } from "../../types.js";
+import type { DefaultAgentHarnessHooks } from "../hooks/default-hooks.js";
+import type { CompactionSettings } from "../compaction/settings.js";
+import type { ExecutionEnv } from "../env/types.js";
+import type { Session } from "../session/session.js";
 import type { PromptTemplate, Skill } from "./harness.js";
 
 // 重新导出 Tool 类型,供需要的地方使用(避免上层再 import @mimi/ai)
@@ -76,7 +80,7 @@ export type { QueueMode } from "../../types.js";
 
 /** agent-loop 用的 stream 函数类型(与 AgentLoopConfig.streamFn 同形) */
 export type HarnessStreamFn = (
-  model: any,
+  model: Model<any>,
   context: any,
   options?: { signal?: AbortSignal; apiKey?: string },
 ) => any;
@@ -84,30 +88,31 @@ export type HarnessStreamFn = (
 // ── AgentHarnessOptions ──
 
 /**
- * 构造 AgentHarness 的完整选项。
+ * 构造 AgentHarness 的完整选项(与 pi 1:1 翻译)。
  *
  * 必填:model / tools / env / session
  * 可选:thinkingLevel / systemPrompt / streamOptions / hooks / resources /
  *      steeringMode / followUpMode / compaction
  *
- * env / session / hooks / compaction 都是接口,具体实现在
- * 后续 Task 注入(Task 5 session + env,Task 4 hooks,Task 6 compaction)。
+ * 三个泛型 TSkill / TPromptTemplate / TTool 让上层能精确传入自己的扩展类型,
+ * 避免内部 helper 不得不写 `as` 强转。
  */
 export interface AgentHarnessOptions<
   TSkill extends Skill = Skill,
   TPromptTemplate extends PromptTemplate = PromptTemplate,
+  TTool extends AgentTool = AgentTool,
 > {
-  /** 当前 LLM model */
+  /** 当前 LLM model(与 pi 1:1 用 Model<any>,无法避免) */
   model: Model<any>;
 
-  /** 工具集合(必须是 AgentTool,有 execute 方法才能被 agent-loop 调用) */
-  tools: AgentTool<any>[];
+  /** 工具集合(必填,可空数组) */
+  tools: TTool[];
 
-  /** 执行环境(必填,本项目只实现 NodeExecutionEnv) */
-  env: any;
+  /** 执行环境(本项目只实现 NodeExecutionEnv) */
+  env: ExecutionEnv;
 
-  /** 已打开的 session,或空 session */
-  session: any;
+  /** 已打开的 session(必填,但 setSession 允许运行时切到 undefined) */
+  session: Session;
 
   /** Thinking level */
   thinkingLevel?: ThinkingLevel;
@@ -122,13 +127,13 @@ export interface AgentHarnessOptions<
   streamOptions?: AgentHarnessStreamOptions;
 
   /** 钩子实例(可选,默认 DefaultAgentHarnessHooks) */
-  hooks?: any;
+  hooks?: DefaultAgentHarnessHooks;
 
   /** 可用资源(skills、prompt templates) */
   resources?: AgentHarnessResources<TSkill, TPromptTemplate>;
 
   /** 压缩设置(可选) */
-  compaction?: any;
+  compaction?: CompactionSettings;
 
   /** steer 队列排空模式 */
   steeringMode?: "all" | "one-at-a-time";
@@ -140,8 +145,7 @@ export interface AgentHarnessOptions<
    * Stream 函数(透传给 agent-loop)。
    *
    * 大多数场景下使用 AI 层的 `models.stream`,通过 env 注入。
-   * Task 3 阶段:为方便测试,允许直接传 streamFn。
-   * 后续 Task 可考虑用 env 注入并自动适配。
+   * 允许直接传 streamFn 主要是为了测试。
    */
   streamFn?: HarnessStreamFn;
 }

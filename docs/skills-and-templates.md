@@ -208,14 +208,11 @@ loadSkillFromFile(env, "skills/git-commit/SKILL.md")
 harness.skill("git-commit", { branch: "main" })
   │
   ▼
-[1] assertNotDisposed()
-  │
-  ▼
-[2] 从 resources.skills 找到 name === "git-commit" 的 skill
+[1] 从 resources.skills 找到 name === "git-commit" 的 skill
   │   ← 找不到抛 AgentHarnessError("skill_not_found")
   │
   ▼
-[3] formatSkillInvocation(skill, { branch: "main" })
+[2] formatSkillInvocation(skill, { branch: "main" })
   │   │   ├─ 遍历 args
   │   │   ├─ 对每个 key:result.replace(/\{\{\s*key\s*\}\}/g, value)
   │   │   └─ 未提供的占位符保留原样
@@ -223,7 +220,7 @@ harness.skill("git-commit", { branch: "main" })
   │   └─ 返回替换后的 markdown 文本
   │
   ▼
-[4] harness.prompt(调起文本)
+[3] harness.prompt(调起文本)
   │   ← 后续走正常 prompt() 流程
   │     (phase 转换、钩子、session 写入等)
   │

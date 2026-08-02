@@ -7,20 +7,23 @@
  * - emit 派发顺序(observers 先,再 handlers)
  * - emit 路由(不同事件 type 走不同 semantics)
  * - setContext 立即更新
- * - addCleanup / clear / dispose 生命周期
+ * - clear / dispose 生命周期
  * - 注册未知事件 type 的容错
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DefaultAgentHarnessHooks } from "../../../src/harness/hooks/default-hooks.js";
-import type { AgentHarnessHookContext, ToolCallHookEvent } from "../../../src/harness/hooks/types.js";
+import type {
+  AgentHarnessHookContext,
+  BeforeAgentStartHookEvent,
+  ToolCallHookEvent,
+} from "../../../src/harness/hooks/types.js";
 
 // ── 通用 helper ──
 
 const TEST_CTX: AgentHarnessHookContext = {
   harness: {} as any,
   session: {} as any,
-  models: {} as any,
   messages: [],
 };
 
@@ -41,6 +44,16 @@ function makeToolCallEvent(): ToolCallHookEvent {
       stopReason: "stop",
       timestamp: 0,
     },
+  };
+}
+
+/** 构造 before_agent_start 测试事件(handler 测试不读入参,只需通过类型) */
+function makeBeforeAgentStartEvent(): BeforeAgentStartHookEvent {
+  return {
+    type: "before_agent_start",
+    prompt: "hi",
+    systemPrompt: "base",
+    resources: {},
   };
 }
 
@@ -239,6 +252,24 @@ describe("DefaultAgentHarnessHooks — emit 路由(各事件 → 对应 semantic
     expect(result).toEqual({ messages: ["h1", "h2"] });
   });
 
+  it("before_agent_start 事件:收集 { messages?, systemPrompt? }(字段级累积,后者胜)", async () => {
+    const h1 = vi.fn(() => ({ messages: ["m1"] }));
+    const h2 = vi.fn(() => ({ systemPrompt: "sp-2" }));
+    const h3 = vi.fn(() => ({ messages: ["m3"] }));
+    hooks.on("before_agent_start", h1);
+    hooks.on("before_agent_start", h2);
+    hooks.on("before_agent_start", h3);
+
+    const result = await hooks.emit(makeBeforeAgentStartEvent());
+    expect(result).toEqual({ messages: ["m3"], systemPrompt: "sp-2" });
+  });
+
+  it("before_agent_start 事件:handler 无返回时结果为 undefined", async () => {
+    hooks.on("before_agent_start", vi.fn());
+    const result = await hooks.emit(makeBeforeAgentStartEvent());
+    expect(result).toBeUndefined();
+  });
+
   it("tool_call 事件:遇 block=true 提前退出", async () => {
     const h1 = vi.fn();
     const h2 = vi.fn(() => ({ block: true, reason: "blocked" }));
@@ -357,45 +388,11 @@ describe("DefaultAgentHarnessHooks — handler 接收 ctx 与 signal", () => {
   });
 });
 
-describe("DefaultAgentHarnessHooks — addCleanup / clear / dispose", () => {
+describe("DefaultAgentHarnessHooks — clear / dispose", () => {
   let hooks: DefaultAgentHarnessHooks;
 
   beforeEach(() => {
     hooks = new DefaultAgentHarnessHooks({ context: { ...TEST_CTX } });
-  });
-
-  it("addCleanup 注册清理函数,clear 时执行", async () => {
-    const cleanup = vi.fn();
-    const unsubscribe = hooks.addCleanup(cleanup);
-    expect(typeof unsubscribe).toBe("function");
-
-    await hooks.clear();
-    expect(cleanup).toHaveBeenCalledTimes(1);
-  });
-
-  it("addCleanup 返回的 unsubscribe 调用后,清理函数不会在 clear 时执行", async () => {
-    const cleanup = vi.fn();
-    const unsubscribe = hooks.addCleanup(cleanup);
-
-    unsubscribe();
-    await hooks.clear();
-    expect(cleanup).not.toHaveBeenCalled();
-  });
-
-  it("多个 cleanup 按注册顺序执行", async () => {
-    const order: string[] = [];
-    hooks.addCleanup(() => {
-      order.push("c1");
-    });
-    hooks.addCleanup(() => {
-      order.push("c2");
-    });
-    hooks.addCleanup(() => {
-      order.push("c3");
-    });
-
-    await hooks.clear();
-    expect(order).toEqual(["c1", "c2", "c3"]);
   });
 
   it("clear 移除所有 handlers 和 observers", async () => {
@@ -414,27 +411,18 @@ describe("DefaultAgentHarnessHooks — addCleanup / clear / dispose", () => {
     expect(h2).not.toHaveBeenCalled();
   });
 
-  it("clear 执行 cleanups 后,清空 cleanup 列表(再次 clear 时不重复执行)", async () => {
-    const cleanup = vi.fn();
-    hooks.addCleanup(cleanup);
-
-    await hooks.clear();
-    expect(cleanup).toHaveBeenCalledTimes(1);
-
-    await hooks.clear();
-    expect(cleanup).toHaveBeenCalledTimes(1); // 还是 1 次
-  });
-
   it("dispose 行为等价于 clear", async () => {
-    const cleanup = vi.fn();
     const h1 = vi.fn();
-    hooks.addCleanup(cleanup);
     hooks.on("context", h1);
 
     await hooks.dispose();
-    expect(cleanup).toHaveBeenCalledTimes(1);
     await hooks.emit({ type: "context" });
     expect(h1).not.toHaveBeenCalled();
+  });
+
+  it("dispose 幂等(重复调用不抛错)", async () => {
+    await hooks.dispose();
+    await expect(hooks.dispose()).resolves.toBeUndefined();
   });
 
   it("clear 后可以重新注册 handlers", async () => {

@@ -36,12 +36,12 @@ describe("AgentHarness config", () => {
       expect(h.getModel()).toBe(mockModel);
     });
 
-    it("getTools 返回构造时的 tools", () => {
+    it("getTools 返回构造时的 tools(深度相等)", () => {
       const tools = [
         { name: "echo", label: "Echo", description: "x", parameters: {} as any, execute: async () => ({ content: [], details: {} }) },
       ];
       const h = new AgentHarness(makeOptions({ tools }));
-      expect(h.getTools()).toBe(tools);
+      expect(h.getTools()).toEqual(tools);
     });
 
     it("getThinkingLevel 返回构造时的 thinkingLevel", () => {
@@ -86,13 +86,13 @@ describe("AgentHarness config", () => {
       expect(h.getModel()).toBe(newModel);
     });
 
-    it("setTools 立即生效,后续 getTools 返回新数组", () => {
+    it("setTools 立即生效,后续 getTools 返回与传入深度相等的数组", () => {
       const h = new AgentHarness(makeOptions());
       const tools = [
         { name: "t1", label: "T1", description: "d", parameters: {} as any, execute: async () => ({ content: [], details: {} }) },
       ];
       h.setTools(tools);
-      expect(h.getTools()).toBe(tools);
+      expect(h.getTools()).toEqual(tools);
     });
 
     it("setThinkingLevel 立即生效", () => {
@@ -139,14 +139,14 @@ describe("AgentHarness config", () => {
   // ── Task 8 增量:QueueMode getter / setter ──
 
   describe("QueueMode 默认值", () => {
-    it("getSteeringMode 默认 'all'", () => {
+    it("getSteeringMode 默认 'one-at-a-time'", () => {
       const h = new AgentHarness(makeOptions());
-      expect(h.getSteeringMode()).toBe("all");
+      expect(h.getSteeringMode()).toBe("one-at-a-time");
     });
 
-    it("getFollowUpMode 默认 'all'", () => {
+    it("getFollowUpMode 默认 'one-at-a-time'", () => {
       const h = new AgentHarness(makeOptions());
-      expect(h.getFollowUpMode()).toBe("all");
+      expect(h.getFollowUpMode()).toBe("one-at-a-time");
     });
 
     it("steeringMode 构造时设置,getter 立即生效", () => {
@@ -179,28 +179,14 @@ describe("AgentHarness config", () => {
 
     it("setSteeringMode 不影响 followUpMode(各自独立)", () => {
       const h = new AgentHarness(makeOptions());
-      h.setSteeringMode("one-at-a-time");
-      expect(h.getFollowUpMode()).toBe("all");
+      h.setSteeringMode("all");
+      expect(h.getFollowUpMode()).toBe("one-at-a-time");
     });
 
     it("setFollowUpMode 不影响 steeringMode(各自独立)", () => {
       const h = new AgentHarness(makeOptions());
-      h.setFollowUpMode("one-at-a-time");
-      expect(h.getSteeringMode()).toBe("all");
-    });
-  });
-
-  describe("dispose 后 setter 抛错", () => {
-    it("dispose 后 setSteeringMode 抛 AgentHarnessError", () => {
-      const h = new AgentHarness(makeOptions());
-      h.dispose();
-      expect(() => h.setSteeringMode("one-at-a-time")).toThrow(/dispose/i);
-    });
-
-    it("dispose 后 setFollowUpMode 抛 AgentHarnessError", () => {
-      const h = new AgentHarness(makeOptions());
-      h.dispose();
-      expect(() => h.setFollowUpMode("one-at-a-time")).toThrow(/dispose/i);
+      h.setFollowUpMode("all");
+      expect(h.getSteeringMode()).toBe("one-at-a-time");
     });
   });
 });

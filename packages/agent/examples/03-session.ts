@@ -501,7 +501,6 @@ async function main() {
   // 关闭 harness
   await harness.getHooks().dispose();
   await harness.getHooks().clear();
-  harness.dispose();
 
   // ── 阶段 10:展示文件路径 + 提示 ──
   console.log("=== 演示完成 ===\n");

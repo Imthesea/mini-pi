@@ -6,13 +6,11 @@
  * 用户只需 import { AgentHarness } 即可使用全部公共 API。
  */
 
-// ── 主类(包含 config / prompt / subscribe 等全部方法) ──
+// ── 主类 ──
 //
-// Task 11 重构(2026-08-02):
-// - Subscription 类型从主类 export(原 event-bus.ts 已合回)
-// - isAgentHarness 改主类 static 方法(原独立文件已删除)
-export { AgentHarness } from "./agent-harness/agent-harness.js";
-export type { Subscription } from "./agent-harness/agent-harness.js";
+// Task 14 重构(2026-08-02):subscribe 改回 push 模式(与 pi 1:1),
+// 删 4 个 AsyncIterable 相关内部类型(Subscriber / Resolver / SubscriptionInternal / Subscription)
+export { AgentHarness, type AgentHarnessListener } from "./agent-harness/agent-harness.js";
 
 // ── Phase ──
 export {
@@ -141,7 +139,7 @@ export {
 export {
   DefaultAgentHarnessHooks,
   type DefaultAgentHarnessHooksOptions,
-  // 8 核心事件类型
+  // 事件类型(12 个实际 emit)
   type ContextHookEvent,
   type BeforeAgentStartHookEvent,
   type ToolCallHookEvent,
@@ -150,27 +148,16 @@ export {
   type SessionBeforeCompactHookEvent,
   type ModelUpdateHookEvent,
   type AbortHookEvent,
-  // 12 预声明事件类型
-  type BeforeProviderRequestHookEvent,
-  type BeforeProviderPayloadHookEvent,
-  type AfterProviderResponseHookEvent,
-  type SessionCompactHookEvent,
   type SessionBeforeTreeHookEvent,
+  type SessionCompactHookEvent,
   type SessionTreeHookEvent,
-  type ThinkingLevelUpdateHookEvent,
-  type ResourcesUpdateHookEvent,
-  type ToolsUpdateHookEvent,
   type QueueUpdateHookEvent,
-  type SavePointHookEvent,
-  type SettledHookEvent,
   // 公共联合类型
   type AgentHarnessHookEvent,
   type AgentHarnessHookName,
   type AgentHarnessHookContext,
-  type AgentHarnessHookContextFacade,
   type ResultOf,
   type SessionFacade,
-  type ModelFacade,
 } from "./hooks/index.js";
 
 // ── 压缩(Task 6 新增) ──

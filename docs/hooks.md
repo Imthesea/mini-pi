@@ -17,7 +17,7 @@
 | 事件类型 | 启用状态 | 幻影结果 (`TResult`) | 语义 | 触发点 |
 |----------|----------|----------------------|------|--------|
 | `context` | ✅ 核心 | `{ messages?: AgentMessage[] }` | 链式转换 | `executeTurn` 调 `runAgentLoop` 前 |
-| `before_agent_start` | ✅ 核心 | `{ messages?, systemPrompt? }` | 链式转换(2 字段) | `prompt()` 入口 |
+| `before_agent_start` | ✅ 核心 | `{ messages?, systemPrompt? }` | 链式转换(2 字段) | `prompt()` 入口,事件携带 `prompt` / `images` / `systemPrompt` / `resources` |
 | `tool_call` | ✅ 核心 | `{ block?: boolean, reason?: string }` | 遇 `block` 退出 | `AgentLoopConfig.beforeToolCall` |
 | `tool_result` | ✅ 核心 | `{ content?, details?, isError?, terminate? }` | 累积补丁 | `AgentLoopConfig.afterToolCall` |
 | `message_end` | ✅ 核心 | `void` | fire-and-forget | `runAgentLoop` emit sink |
@@ -33,7 +33,7 @@
 | `thinking_level_update` | 🔜 预声明 | `void` | fire-and-forget | 未来 `setThinkingLevel` |
 | `resources_update` | 🔜 预声明 | `void` | fire-and-forget | 未来 `setResources` |
 | `tools_update` | 🔜 预声明 | `void` | fire-and-forget | 未来 `setTools` |
-| `queue_update` | ✅ 已启用 | `void` | fire-and-forget | `steer/followUp/nextTurn` 末尾 |
+| `queue_update` | ✅ 已启用 | `void` | fire-and-forget | 入队(`steer`/`followUp`/`nextTurn` 末尾)与消费(队列 drain 时) |
 | `save_point` | 🔜 预声明 | `void` | fire-and-forget | 未来保存点 |
 | `settled` | 🔜 预声明 | `void` | fire-and-forget | 未来 turn 结算 |
 
@@ -44,7 +44,7 @@
 | 语义函数 | 应用事件 | 行为 |
 |----------|----------|------|
 | `runContextSemantics` | `context` | 顺序链式转换,每个 handler 可改 `messages`,下一个 handler 看到上一个的输出 |
-| `runBeforeAgentStartSemantics` | `before_agent_start` | 顺序链式转换,可同时改 `messages` 和 `systemPrompt` |
+| `runBeforeAgentStartSemantics` | `before_agent_start` | 顺序链式转换,可同时改 `messages` 和 `systemPrompt`;事件携带本轮入参(`prompt` / `images` / `systemPrompt` / `resources`),handler 可读到已拼好的 systemPrompt 再决定是否覆盖 |
 | `runToolCallSemantics` | `tool_call` | 顺序执行,遇 `{ block: true }` 提前退出,合并 `reason` |
 | `runToolResultSemantics` | `tool_result` | 顺序累积补丁,每个 handler 增量覆盖 `content` / `details` / `isError` / `terminate` |
 | `runSessionBeforeSemantics` | `session_before_compact` / `session_before_tree` | 顺序执行,遇 `{ cancel: true }` 提前退出,或注入 `compaction` 跳过 LLM |

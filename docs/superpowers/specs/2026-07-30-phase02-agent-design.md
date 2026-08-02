@@ -139,8 +139,9 @@ const harness = new AgentHarness({
 // 一次性启动
 await harness.prompt("今天天气怎么样?");
 
-// 流式接收事件
-for await (const event of harness.subscribe()) { /* ... */ }
+// 流式接收事件(push 模式,与 pi 1:1)
+const unsubscribe = harness.subscribe((event) => { /* ... */ });
+// 调 unsubscribe() 取消订阅
 
 // 中途换模型 / 加工具 / 加载 skill / 通过模板启动
 harness.setModel(newModel);
@@ -161,7 +162,7 @@ await harness.abort();
 **主类实现要点**:
 - 字段全部用 `private`(不用 `#`)
 - 业务方法直接 `this.xxx` 操作,不走协作层
-- 队列方法直接 `this.steerQueue.push(...)` + `this.emitAsync({ type: "queue_update" })`
+- 队列方法直接 `this.steerQueue.push(...)` + `this.emitAsync({ type: "queue_update" })`;消费统一走 `drainQueue`(消费后也 emit queue_update,失败回滚,对齐 pi)
 - `compact()` / `navigateTree()` 内联实现,调真独立模块的纯函数(`prepareCompaction` / `compact` / `generateBranchSummary`)
 - `executeTurn()` 内联实现,直接 `this.runtime` / `this.hooks` / `this.options.session`,不拆 `turn-execution.ts`
 - **`executeTurn` 拆为 5 个命名步骤私有方法**(`_prepareTurnInput` / `_syncSessionForTurn` / `_buildTurnPrompt` / `_combineInitialMessages` / `_buildTurnContext` / `_runAgentLoopAndForward`),主方法只剩 28 行编排
@@ -225,7 +226,7 @@ interface AgentHarnessHookContext {
 | 事件 | 分类 | 携带结果 | 用途 |
 |------|------|----------|------|
 | `context` | 核心 | `{ messages? }` | 转换发送给 LLM 的消息链 |
-| `before_agent_start` | 核心 | `{ messages?, systemPrompt? }` | 注入额外消息或修改 system prompt |
+| `before_agent_start` | 核心 | `{ messages?, systemPrompt? }` | 注入额外消息或修改 system prompt;事件携带本轮入参(`prompt` / `images` / `systemPrompt` / `resources`),覆盖时整体替换(含 skills 块) |
 | `tool_call` | 核心 | `{ block?, reason? }` | 拦截工具调用 |
 | `tool_result` | 核心 | `{ content?, details?, isError?, terminate? }` | 修补工具结果 |
 | `message_end` | 核心 | undefined | 消息结束时通知 |
@@ -293,13 +294,12 @@ nextTurn(text: string, options?: { images?: ImageContent[] }): void {
 
 **`steer`** 在 LLM 流进行中插入,中断当前 LLM 流;**`followUp`** 排队等当前 turn 自然结束再投递;**`nextTurn`** 在下次 `prompt()` 入口 prepend。
 
-**QueueMode 行为差异**:`"all"` 排空全部 / `"one-at-time"` 每次排空点只取最早一条,其余保留。**drain 直接在 `_drainSteerQueue` / `_drainFollowUpQueue` 内联**(本包不抽独立 `drainByMode` 纯函数 — 主类方法直接 `this.steerQueue = []` 或 `[first, ...rest]`,不借/还状态)。
+**QueueMode 行为差异**:`"all"` 排空全部 / `"one-at-a-time"` 每次排空点只取最早一条,其余保留。**消费统一走主类私有方法 `drainQueue(queue, mode)`**(`queue.splice(0)` 或 `queue.splice(0, 1)`),消费后 emit `queue_update`(入队、出队都通知订阅者),emit 失败时 `queue.unshift(...messages)` 回滚——与 pi 的 `drainQueuedMessages` 1:1 对齐。生产入口:`prompt()` 消费 nextTurn、`getSteeringMessages` / `getFollowUpMessages` 消费 steer / followUp;另提供 3 个测试用内部方法 `_drainSteerQueue()` / `_drainFollowUpQueue()` / `_drainNextTurnQueue()`(均返回 Promise)。
 
 ### 5.3 压缩(`compact`)
 
 ```ts
 async compact(customInstructions?: string): Promise<string | undefined> {
-  this.assertNotDisposed();
   assertPhase(this.getPhase(), "idle", "compact");
   this._setPhase("compaction");
   try {

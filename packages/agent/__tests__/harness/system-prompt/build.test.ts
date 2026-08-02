@@ -40,16 +40,16 @@ function makeContext(overrides: Partial<SystemPromptContext> = {}): SystemPrompt
 }
 
 describe("harness/system-prompt/build", () => {
-  it("undefined → 返回空字符串(允许无 system prompt 启动)", () => {
-    expect(buildSystemPrompt(undefined, makeContext())).toBe("");
+  it("undefined → 返回空字符串(允许无 system prompt 启动)", async () => {
+    expect(await buildSystemPrompt(undefined, makeContext())).toBe("");
   });
 
-  it("静态字符串 → 原样返回", () => {
+  it("静态字符串 → 原样返回", async () => {
     const prompt = "你是一个有帮助的助手。";
-    expect(buildSystemPrompt(prompt, makeContext())).toBe(prompt);
+    expect(await buildSystemPrompt(prompt, makeContext())).toBe(prompt);
   });
 
-  it("动态 provider 每次 turn 调用一次", () => {
+  it("动态 provider 每次 turn 调用一次", async () => {
     const ctx1 = makeContext();
     const ctx2 = makeContext();
     let callCount = 0;
@@ -57,11 +57,11 @@ describe("harness/system-prompt/build", () => {
       callCount += 1;
       return `model=${ctx.model.id} session=${ctx.sessionId}`;
     };
-    const r1 = buildSystemPrompt(provider, ctx1);
+    const r1 = await buildSystemPrompt(provider, ctx1);
     expect(r1).toBe("model=m session=sess-1");
     expect(callCount).toBe(1);
 
-    const r2 = buildSystemPrompt(provider, ctx2);
+    const r2 = await buildSystemPrompt(provider, ctx2);
     expect(r2).toBe("model=m session=sess-1");
     expect(callCount).toBe(2);
   });
@@ -73,17 +73,17 @@ describe("harness/system-prompt/build", () => {
     expect(r).toBe("async:sess-1");
   });
 
-  it("provider 返回空字符串 → 视为无 prompt", () => {
+  it("provider 返回空字符串 → 视为无 prompt", async () => {
     const provider = () => "";
-    expect(buildSystemPrompt(provider, makeContext())).toBe("");
+    expect(await buildSystemPrompt(provider, makeContext())).toBe("");
   });
 
-  it("拼入 skills 块:resources.skills 非空时附加 XML 块", () => {
+  it("拼入 skills 块:resources.skills 非空时附加 XML 块", async () => {
     const skills: Skill[] = [
       { name: "git-commit", description: "提交代码", content: "..." },
       { name: "lint", description: "运行 lint", content: "..." },
     ];
-    const r = buildSystemPrompt(
+    const r = await buildSystemPrompt(
       "你是一个 agent。",
       makeContext({ resources: { skills } }),
     );
@@ -92,11 +92,11 @@ describe("harness/system-prompt/build", () => {
     expect(r).toContain("lint");
   });
 
-  it("无 resources 或 skills 空时:不附加 skills 块", () => {
-    const r = buildSystemPrompt("x", makeContext());
+  it("无 resources 或 skills 空时:不附加 skills 块", async () => {
+    const r = await buildSystemPrompt("x", makeContext());
     expect(r).toBe("x");
 
-    const r2 = buildSystemPrompt("x", makeContext({ resources: { skills: [] } }));
+    const r2 = await buildSystemPrompt("x", makeContext({ resources: { skills: [] } }));
     expect(r2).toBe("x");
   });
 });

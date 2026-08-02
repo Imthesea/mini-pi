@@ -287,7 +287,9 @@ nextTurn(text: string, options?: { images?: ImageContent[] }): void {
 - `harness.nextTurn(text, options?)`: 在下一轮用户消息之前插入
 - 队列模式 setter / getter(`setSteeringMode` / `setFollowUpMode` / `getSteeringMode` / `getFollowUpMode`)
 
-**QueueMode 行为差异**: `"all"` 排空全部 / `"one-at-time"` 每次排空点只取最早一条,其余保留。
+**QueueMode 行为差异**: `"all"` 排空全部 / `"one-at-a-time"` 每次排空点只取最早一条,其余保留。
+
+> **后续变更(2026-08-02,对齐 pi 的 `drainQueuedMessages`)**:drain 逻辑收敛为主类私有方法 `drainQueue(queue, mode)`,用 `queue.splice(0)` / `queue.splice(0, 1)` 取值;消费后 emit `queue_update`(入队、出队都通知订阅者),emit 失败时 `queue.unshift(...messages)` 回滚。`_drainSteerQueue` / `_drainFollowUpQueue` / `_drainNextTurnQueue` 保留为测试用内部方法,均返回 `Promise`。
 
 **自定义消息演示**(`examples/08-custom-messages.ts`):
 ```ts
@@ -407,3 +409,49 @@ cd packages/agent && pnpm build               # dist/ 生成,无 warning
 **对齐验证清单**: ✅ 跑全量 tests(499 pass,无增删)/ ✅ 跑全量 examples(7 跑通)/ ✅ tsc 0 / ✅ pnpm build 0 / ✅ wc -l 主类 1053 → 1119 行(+66 行,主流程更清晰)/ ✅ 业务方法 0 处 `as any` 强转 / ✅ 4 个新 helper 内部共 3 处 `as any`(2 emit + 1 session),从 12 处集中到 3 处。
 
 - [x] Step 1-8: 加 4 个 helper → 替换 5 处 `as Session<any>` + 修 getSession/setSession 类型 → 替换 8 处 `void this.hooks.emit(...)` + 2 处 `(await ...)` 强转 → 拆 executeTurn 5 步 → 小修 3 处 → 跑测试修复 → 展示 diff → commit
+
+---
+
+## Task 14 修订(2026-08-02)
+
+**动机**:用户指出 `subscribe()` 不应偏离原 pi 的 push 模式。原 Task 12 重构引入了 `subscribe(): AsyncIterable<AgentHarnessEvent>`(返回 Subscription,支持 `for await` + `.cancel()`),虽然 spec 里显式要求,但实际工程上有 3 个问题:
+
+1. 引入 4 个"过细的内部类型"(`Subscriber` / `Resolver` / `SubscriptionInternal` / `Subscription` + 1 个 `SubscriptionInternalSymbol`),按工程原则 § 1.1 "3 个快速判断"严格评估,**不能独立测试 + 脱离主类无独立意义**,应该合回主类或干脆删掉
+2. 60 行 `subscribe()` 实现 + 闭包内部状态,读者要打开看 5 个类型定义才能完整理解"订阅机制"
+3. 与原 pi 1:1 翻译原则相违背(工程原则 § 1.1 末行) — pi 的 `subscribe(listener) → unsubscribe` 只有 11 行,一目了然
+
+**决定**:回退到 push 模式,与 pi 1:1 翻译。
+
+**改动**:
+1. **删 5 个类型**:`Subscriber` / `Resolver` / `SubscriptionInternal` / `Subscription` 公共接口 / `SubscriptionInternalSymbol`
+2. **改 `subscribe()` 签名**:`subscribe(listener: AgentHarnessListener): () => void`
+3. **新增 `AgentHarnessListener` 类型**(export):`(event, signal?) => void | Promise<void>`,与 pi 1:1
+4. **删 `addSubscriber()` 私有方法**:直接 push 到 `this.subscribers: Set<AgentHarnessListener>`,unsub 就是 `() => this.subscribers.delete(listener)`
+5. **`emit()` 方法不变**:本来就是遍历 `this.subscribers` 调用,无 AsyncIterable 改造
+6. **改 4 个 example**: `01-basic` / `04-compaction` / `07-hooks` / `08-custom-messages`
+7. **改 2 个 test**: `agent-harness.test.ts` / `prompt.test.ts`
+8. **改 spec § 3.1**: API 示例从 `for await (const event of harness.subscribe())` 改为 `harness.subscribe(listener) => unsubscribe()`
+9. **删 `Subscription` re-export**:`src/index.ts` + `src/harness/index.ts` 改为导出 `AgentHarnessListener`
+
+**对齐验证清单**: ✅ 跑全量 tests(480 pass)/ ✅ 跑全量 examples(4 用到 subscribe 的全部跑通:01 / 04 / 07 / 08)/ ✅ tsc 0 / ✅ wc -l 主类 1029 → ~960 行(减约 70 行,删 4 个类型 + 简化 subscribe + 注释)
+
+**原则回归**:此次修订把"为简洁而简洁"拉回到"1:1 翻译 pi + 显式标注偏离"的工程原则 § 1.1 框架内。`AsyncIterable` 那条 spec 当时写得"自认更好",但没记录理由;本次发现 spec 偏离没带来实质收益(仅"整链 AsyncIterable"的形式美感),不值得为此增加 70 行 + 5 个类型。**留给未来:若真发现 push 模式不够用(例如需要 backpressure),再重新评估 AsyncIterable 化,但要在 spec 里先写清理由**。
+
+---
+
+## Task 13 修订(2026-08-02)
+
+**动机**:Task 12 完成后,继续做"小修"清理(用户问"还有没有可以继续优化的地方")。
+
+**改动**:
+1. **删 2 个真死代码**:`_setCurrentAbortController`(无任何调用方)+ `_isDisposed`(无任何调用方)
+2. **`_syncHookContext` 改 `private`**:从 `public _` 灰色地带改为标准 private
+3. **`prompt()` 入口统一用 `emitAwait` helper**:消掉 1 处 `as ... | undefined` 强转,删 1 个 `BeforeAgentStartHookEvent` import
+4. **`getSession()` 返回类型从 `any` 改为 `Session<any> | undefined`**
+5. **`setSession()` 加 13 行 JSDoc** 明确"运行时切换 session"语义,标注"预留 API"
+
+**对齐验证清单**: ✅ 跑全量 tests(480 pass)/ ✅ 跑 01-basic example 跑通 / ✅ tsc 0
+
+---
+
+

@@ -210,18 +210,15 @@ async function main() {
   );
 
   // 订阅 AgentHarness 事件(让 stream 端也能看到流)
-  const subscription = harness.subscribe();
-  const subscriptionTask = (async () => {
-    for await (const event of subscription) {
-      // 打印 message_update 的文本增量
-      if (
-        event.type === "message_update" &&
-        event.assistantMessageEvent.type === "text_delta"
-      ) {
-        process.stdout.write(event.assistantMessageEvent.delta);
-      }
+  const unsubscribe = harness.subscribe((event) => {
+    // 打印 message_update 的文本增量
+    if (
+      event.type === "message_update" &&
+      event.assistantMessageEvent.type === "text_delta"
+    ) {
+      process.stdout.write(event.assistantMessageEvent.delta);
     }
-  })();
+  });
 
   // 启动 turn
   console.log("--- 启动 harness.prompt() 第 1 轮 ---\n");
@@ -235,11 +232,8 @@ async function main() {
   const messages2 = await harness.prompt("今天是几号?");
   console.log("\n  ✓ 第 2 轮完成\n");
 
-  // 等订阅拿到所有事件
-  // (AgentHarness.subscribe().cancel() 已修:resolve pending 的 for await)
-  // 注意:必须先 cancel 再 await,否则 for await 在 await 阶段等新事件永不返回
-  subscription.cancel();
-  await subscriptionTask.catch(() => {});
+  // 取消订阅
+  unsubscribe();
 
   // ── 验证 ──
   console.log("\n=== 验证 hook 行为 ===\n");
@@ -372,10 +366,9 @@ async function main() {
   console.log(`    - context handler 触发了 ${contextCount} 次`);
   console.log(`    - observer 总共收到 ${observerLog.length} 个事件`);
 
-  // 清理:dispose harness
+  // 清理:dispose hooks
   await harness.getHooks().dispose();
   await harness.getHooks().clear();
-  harness.dispose();
 }
 
 function describeMessage(m: AgentMessage): string {

@@ -14,28 +14,19 @@ import type { SystemPromptInput } from "./types.js";
 import { formatSkillsBlock, joinParts } from "./parts.js";
 
 /**
- * 拼装最终 system prompt。
+ * 拼装最终 system prompt(统一异步入口,同步输入也走 await)。
  *
  * @param input 静态字符串 / 动态 provider / undefined
  * @param ctx 拼装上下文
- * @returns 最终 system prompt 字符串(可能为空)
- *          若 provider 是异步,返回 Promise<string>(由调用方 await)
+ * @returns 最终 system prompt 字符串(可能为空);始终返回 Promise,由调用方 await
  */
-export function buildSystemPrompt(
+export async function buildSystemPrompt(
   input: SystemPromptInput,
   ctx: SystemPromptContext,
-): string | Promise<string> {
-  // 处理 input:字符串直接用,函数/异步函数调用
-  const main = resolveMainPrompt(input, ctx);
-
-  // 拼装 skills 块
+): Promise<string> {
+  const main = await resolveMainPrompt(input, ctx);
   const skillsBlock = formatSkillsBlock(ctx.resources?.skills ?? []);
-
-  if (typeof main === "string") {
-    return joinParts([main, skillsBlock]);
-  }
-  // 异步 main → 链式拼装
-  return main.then((m) => joinParts([m, skillsBlock]));
+  return joinParts([main, skillsBlock]);
 }
 
 /** 解析 main prompt(支持同步 / 异步 provider) */

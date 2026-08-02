@@ -7,7 +7,7 @@
 
 ## 概述
 
-`AgentHarness` 是 `@mimi/agent` 包的主类,提供面向开发者的"agent 运行时门面":它把上游 `@mimi/ai` 的流式 LLM 协议、底层的 session 持久化、面向扩展的钩子系统、以及队列化的用户消息流整合在一个对象里,让调用方能用 `prompt(text)` 一行代码启动一个完整的 LLM 多轮对话循环。本类采用"主类 + 拆分文件"组织:状态、生命周期、订阅、配置 getter/setter、业务入口(`prompt` / `compact` / `navigateTree` / `skill` / `promptFromTemplate` / `steer` / `followUp` / `nextTurn`)全部在主类,具体执行细节(turn 编排、钩子桥接、压缩、队列协作)拆到 9 个子文件,主类只做编排、委托与封装。
+`AgentHarness` 是 `@mimi/agent` 包的主类,提供面向开发者的"agent 运行时门面":它把上游 `@mimi/ai` 的流式 LLM 协议、底层的 session 持久化、面向扩展的钩子系统、以及队列化的用户消息流整合在一个对象里,让调用方能用 `prompt(text)` 一行代码启动一个完整的 LLM 多轮对话循环。本类为单文件主类,状态、订阅、配置 getter/setter、业务入口(`prompt` / `compact` / `navigateTree` / `skill` / `promptFromTemplate` / `steer` / `followUp` / `nextTurn`)全部在主类内。
 
 核心定位:AgentHarness **不是** LLM 客户端,也不是单纯的会话存储;它是"调用者与 LLM + session + hooks + queues 之间的中介层",负责把这些子系统按确定的生命周期(状态机)串起来。
 
@@ -19,27 +19,31 @@
 |------|------|
 | 配置持有 | 持有构造时的不可变项(`env` / `session` / `streamFn`)和运行时可变项(`model` / `tools` / `thinkingLevel` / `resources` / `streamOptions` / `systemPrompt`),通过 `getXxx` / `setXxx` 暴露 |
 | 状态机 | 维护 `AgentHarnessPhase`(`idle` / `turn` / `compaction` / `branch_summary`),通过 `assertPhase` 静态校验转换合法性 |
-| 事件总线 | 内部 `EventBus`,`subscribe()` 返回 `AsyncIterable<Subscription>`,用于实时消费 `AgentHarnessEvent` 联合 |
-| 钩子系统 | 持有 `DefaultAgentHarnessHooks` 实例,在 prompt / abort / setModel / executeTurn / queue 操作等关键点 emit 8 个核心事件 |
+| 事件订阅 | 内部 `handlers` Map,`subscribe()` / `on()` 注册监听,`emit()` 派发 `AgentHarnessEvent` |
+| 钩子系统 | 持有 `DefaultAgentHarnessHooks` 实例,在 prompt / abort / setModel / tool call / queue 操作等关键点 emit 钩子事件 |
 | 业务入口 | `prompt` / `compact` / `navigateTree` / `skill` / `promptFromTemplate` / `steer` / `followUp` / `nextTurn` |
-| 资源管理 | `dispose()` 同步清空订阅、钩子、三个队列(steer / followUp / nextTurn) |
 
 ### 2. 私有字段(运行时状态)
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `#options` | `AgentHarnessOptions` | 构造时传入,运行时不变(env / session / streamFn) |
-| `#runtime` | 内嵌对象 | 6 个可变配置字段,setter 写入此处,影响"下一个 turn 快照" |
-| `#phase` | `AgentHarnessPhase` | 状态机当前值,默认 `"idle"` |
-| `#eventBus` | `EventBus` | 内部事件总线,`subscribe()` 委托给它 |
-| `#hooks` | `DefaultAgentHarnessHooks` | 钩子系统实例(可注入) |
-| `#currentAbortController` | `AbortController \| null` | 当前 turn 的 abort 句柄,turn 结束清空 |
-| `#disposed` | `boolean` | 防重复清理 |
-| `#steerQueue` | `readonly AgentMessage[]` | steer 队列(高优先级,中断当前 LLM) |
-| `#followUpQueue` | `readonly AgentMessage[]` | follow-up 队列(低优先级,turn 结束投递) |
-| `#nextTurnQueue` | `readonly AgentMessage[]` | nextTurn 队列(下次 prompt 入口 prepend) |
-| `#steeringMode` | `QueueMode` | steer 排空模式,默认 `"all"` |
-| `#followUpMode` | `QueueMode` | follow-up 排空模式,默认 `"all"` |
+| `options` | `AgentHarnessOptions` | 构造时传入,运行时不变(env / session / streamFn) |
+| `session` | `Session` | 会话持久化实例 |
+| `model` | `Model<any>` | 当前 LLM 模型,setter 可换 |
+| `thinkingLevel` | `ThinkingLevel \| undefined` | 思考级别 |
+| `systemPrompt` | 字符串或动态提供者 | 系统提示词,setter 可换 |
+| `streamOptions` | `AgentHarnessStreamOptions \| undefined` | 流式选项 |
+| `resources` | `AgentHarnessResources \| undefined` | 可注入资源(skills / promptTemplates 等) |
+| `tools` | `Map<string, TTool>` | 工具表,setter 整体替换 |
+| `phase` | `AgentHarnessPhase` | 状态机当前值,默认 `"idle"` |
+| `handlers` | `Map<string, Set<Handler>>` | 事件订阅表 |
+| `hooks` | `DefaultAgentHarnessHooks` | 钩子系统实例(可注入) |
+| `currentAbortController` | `AbortController \| null` | 当前 turn 的 abort 句柄,turn 结束清空 |
+| `steerQueue` | `AgentMessage[]` | steer 队列(高优先级,中断当前 LLM) |
+| `followUpQueue` | `AgentMessage[]` | follow-up 队列(低优先级,turn 结束投递) |
+| `nextTurnQueue` | `AgentMessage[]` | nextTurn 队列(下次 prompt 入口 prepend) |
+| `steeringMode` | `QueueMode` | steer 排空模式,默认 `"one-at-a-time"` |
+| `followUpMode` | `QueueMode` | follow-up 排空模式,默认 `"one-at-a-time"` |
 
 ### 3. 阶段状态机
 
@@ -52,7 +56,7 @@
 | `compaction` | `idle` | 压缩完成 |
 | `branch_summary` | `idle` | 分支摘要完成 |
 
-非 `idle` 阶段调 `prompt()` 会抛 `AgentHarnessError("busy")`。
+非 `idle` 阶段调 `prompt()` / `compact()` / `navigateTree()` 会抛 `AgentHarnessError("busy")`(由 `assertPhase` 校验)。
 
 ## API 速查
 
@@ -67,9 +71,9 @@ new AgentHarness(options: AgentHarnessOptions)
 ### 订阅 / 中止
 
 ```typescript
-subscribe(): Subscription                        // AsyncIterable<AgentHarnessEvent>
+subscribe(listener: AgentHarnessListener): () => void   // 订阅所有事件,返回退订函数
+on(type: string, handler: AgentHarnessHandler): () => void  // 按类型订阅
 abort(): void                                   // 中断当前 turn(若有)
-dispose(): Promise<void>                        // 清空所有资源
 ```
 
 ### 阶段查询
@@ -87,21 +91,21 @@ getHooks(): DefaultAgentHarnessHooks            // 拿到钩子系统实例,用�
 ### 业务入口
 
 ```typescript
-prompt(text: string, options?: AgentHarnessStreamOptions): Promise<AgentMessage[]>
-compact(): Promise<string | undefined>          // 返回新 session leaf id(若有)
-navigateTree(options: { targetId: string }): Promise<void>
-skill(name: string, args?: Record<string, string>): Promise<void>
-promptFromTemplate(name: string, args: Record<string, string>): Promise<void>
+prompt(text: string, options?: { images?: Array<{ data: string; mimeType: string }> }): Promise<AgentMessage[]>
+compact(): Promise<string | undefined>          // 返回压缩摘要(若钩子未 cancel)
+navigateTree(options: { targetId: string | null }): Promise<string | undefined>  // 返回新的 branch entry id
+skill(name: string, args?: Record<string, string>): Promise<AgentMessage[]>
+promptFromTemplate(name: string, args: Record<string, string>): Promise<AgentMessage[]>
 ```
 
 ### 队列操作
 
 ```typescript
-steer(text: string, options?: { images?: ImageArray }): void
-followUp(text: string, options?: { images?: ImageArray }): void
-nextTurn(text: string, options?: { images?: ImageArray }): void
+steer(text: string, images?: ImageArray): void
+followUp(text: string, images?: ImageArray): void
+nextTurn(text: string, images?: ImageArray): void
 
-getSteeringMode(): QueueMode                    // "all" | "one-at-a-time"
+getSteeringMode(): QueueMode                    // "one-at-a-time" | "all"
 setSteeringMode(mode: QueueMode): void
 getFollowUpMode(): QueueMode
 setFollowUpMode(mode: QueueMode): void
@@ -115,26 +119,31 @@ setFollowUpMode(mode: QueueMode): void
 getModel() / setModel(model: Model<any>): void
 getTools() / setTools(tools: AgentTool<any>[]): void
 getThinkingLevel() / setThinkingLevel(level: ThinkingLevel | undefined): void
+getSession(): Session
 getResources() / setResources(resources: AgentHarnessResources | undefined): void
 getStreamOptions() / setStreamOptions(opts: AgentHarnessStreamOptions | undefined): void
 getSystemPrompt() / setSystemPrompt(prompt: string | DynamicPromptProvider): void
-getSession(): Session<any> | undefined
-getEnv(): ExecutionEnv
-getStreamFn(): StreamFn
+getHooks(): DefaultAgentHarnessHooks
 ```
 
-> `setModel` 末尾会 emit `model_update` 钩子事件;`setThinkingLevel` / `setResources` 暂不 emit(预留接口)。
+> `setModel` 末尾会 emit `model_update` 钩子事件;`setSession` 为预留 API(pi 没有,运行时不允许切换)。
 
 ### 私有方法(对外不可见)
 
 ```typescript
-#validateOptions(options): void                 // 构造时校验必填字段
-#assertNotDisposed(): void                      // 业务方法入口检查
-#buildHookContext(): AgentHarnessHookContext    // 构造钩子 context
-#loadSessionMessages(session): Promise<AgentMessage[]>
-#buildQueueOpDeps(): QueueOpDeps                // 给 queue.ts 注入依赖,保持 # 字段封装
-#emit(event): Promise<void>                     // 事件总线派发
+validateOptions(options): void                  // 构造时校验必填字段
+buildHookContext(): AgentHarnessHookContext     // 构造钩子 context
+loadSessionMessages(): Promise<AgentMessage[]>  // 从 session 加载历史消息
+syncHookContext(): void                         // 刷新 hooks 的 context
+emitHook<T>(event): Promise<T | undefined>      // 派发钩子事件(走 hooks 语义路由)
+emit(event): Promise<void>                      // 派发 AgentEvent 给订阅者(遍历 "*" handlers)
+bridgeBeforeToolCall() / bridgeAfterToolCall()  // 把 agent-loop 的 tool call 桥接到 hooks
+buildUserContent(text, images)                  // 构造 user 消息 content(纯文本或 text+images 数组)
+tryAppendSession(message): void                 // fire-and-forget 写 session,失败只 log
+drainQueue(queue, mode): Promise<AgentMessage[]>  // 队列排空统一逻辑(all / one-at-a-time);消费后 emit queue_update,失败回滚(对齐 pi)
 ```
+
+> 另提供 3 个测试用内部方法(下划线前缀,均返回 Promise):`_drainSteerQueue()` / `_drainFollowUpQueue()` / `_drainNextTurnQueue()`。
 
 ## 流程图
 
@@ -144,36 +153,37 @@ getStreamFn(): StreamFn
 harness.prompt("你好")
   │
   ▼
-[1] assertNotDisposed()
+[1] assertPhase("idle")            ← 非 idle 抛 AgentHarnessError("busy")
   │
   ▼
-[2] assertPhase("idle")            ← 非 idle 抛 AgentHarnessError("busy")
+[2] this.phase = "turn"
   │
   ▼
-[3] #phase = "turn"
+[3] emit("before_agent_start")     ← hook 可返回 { messages?, systemPrompt? }
+  │                                   事件携带本轮入参(prompt / images / 已拼好的 systemPrompt / resources);
+  │                                   messages 追加到用户消息之后,返回 systemPrompt 则整体覆盖(含 skills 块)
   │
   ▼
-[4] _setCurrentAbortController(new AbortController())
+[4] drain nextTurn 队列(全部消费)
   │
   ▼
-[5] emit("before_agent_start")     ← hook 可改 messages / systemPrompt
+[5] 构造 user message + system prompt(await session.getMetadata 拿真实 sessionId)
   │
   ▼
-[6] executeTurn()  ─────────────────────────────────┐
-  │   ├─ buildContext (从 session 加载 + 处理 nextTurnQueue prepend)
-  │   ├─ emit("context")                              │ turn-execution.ts
-  │   ├─ runAgentLoop(prompts, ctx, config)           │
-  │   │     ├─ 外层 while: 处理 steer/follow-up 续命 │
-  │   │     │   ├─ 内层 while: tool call 循环         │
-  │   │     │   └─ drainSteerQueue / drainFollowUpQueue│
-  │   │   └─ emit("message_end") per message          │
-  │   └─ return messages                              │
-  │                                                  ◀┘
-  ▼
-[7] #currentAbortController = null
+[6] emit("context")                ← hook 可改 messages
   │
   ▼
-[8] #phase = "idle"                ← 异常路径也走 finally
+[7] syncHookContext + tryAppendSession(userMessage)
+  │
+  ▼
+[8] runAgentLoop(initialMessages, ctx, config, 转发事件)
+  │     ├─ getSteeringMessages: drain steer 队列(按 steeringMode)
+  │     ├─ getFollowUpMessages: drain followUp 队列(按 followUpMode)
+  │     ├─ beforeToolCall / afterToolCall: 桥接 hooks 的 tool_call / tool_result
+  │     └─ message_end: tryAppendSession + emit("message_end") + emit(event)
+  │
+  ▼
+[9] finally: this.phase = "idle"       ← 异常路径也走 finally
   │
   ▼
 return messages
@@ -188,27 +198,24 @@ harness.compact()
 [1] assertPhase("idle")
   │
   ▼
-[2] #phase = "compaction"
+[2] this.phase = "compaction"
   │
   ▼
 [3] emit("session_before_compact") ← 钩子可 cancel / 注入已有结果
   │
   ▼
-[4] runCompactOp()
-  │   ├─ prepareCompaction(选保留边界,基于 keepRecentTokens)
-  │   ├─ estimateTokens + extractFileOpsFromMessage
-  │   ├─ generateBranchSummary(LLM 生成 summary)
-  │   ├─ session.appendEntry(CompactionEntry)
-  │   └─ session.setLeafId(newId)
+[4] runCompact(session, model, streamFn)
+  │     ├─ 若钩子注入 compaction 则直接复用
+  │     └─ 否则生成摘要 + session.appendCompaction
   │
   ▼
 [5] emit("session_compact")
   │
   ▼
-[6] #phase = "idle"
+[6] finally: this.phase = "idle"
   │
   ▼
-return newLeafId | undefined
+return summary | undefined
 ```
 
 ### `steer()` / `followUp()` / `nextTurn()` 时序
@@ -217,8 +224,8 @@ return newLeafId | undefined
 harness.steer("补充提示")                harness.prompt("...")
   │                                          │
   ▼                                          ▼
-入队 #steerQueue + emit("queue_update")     runAgentLoop 内层 while:
-  │                                          │   每轮调 drainSteerQueue
+入队 this.steerQueue + emit("queue_update")     runAgentLoop 内层 while:
+  │                                          │   每轮 drainSteerQueue(消费后也 emit queue_update)
   ▼                                          │   ← steer 消息被 agent-loop 看到
 LLM 流中断(下次循环)                         │   重复直到 steer 队列空
                                              │
@@ -236,5 +243,4 @@ LLM 流中断(下次循环)                         │   重复直到 steer 队
 3. **session 失败不阻塞 turn**:`session.appendMessage` 失败只 `console.error`,不抛;调用方需要自行监控持久化。
 4. **`.d.ts` 声明合并独立**:扩展 `CustomAgentMessages` 必须放在独立 `.d.ts` 文件,避免污染 `tsconfig.test.json` 编译(测试已 exclude examples)。
 5. **钩子 ctx 的 `models` facade 在 prompt 入口为空对象**:依赖外部注册 facade 才能拿到 model 信息(预留扩展点)。
-6. **9 个预声明事件未启用**:`before_provider_request` / `before_provider_payload` / `after_provider_response` / `thinking_level_update` / `resources_update` / `tools_update` / `save_point` / `settled` / `queue_update` 中,只有 `queue_update` 已 emit,其余类型已声明但需后续按需启用。
-7. **拆分行数预警**:主类 `agent-harness.ts` 实测 682 行,超过 500 软限 182 行(文件头已加 explicit justification),未来再加功能需进一步拆分。
+6. **队列操作无阶段校验**:`steer` / `followUp` / `nextTurn` 任何时候都能入队;消费时机由 agent-loop 的排空逻辑决定。

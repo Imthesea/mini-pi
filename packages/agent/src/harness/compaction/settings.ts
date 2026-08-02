@@ -15,6 +15,9 @@
 import type { SessionContext } from "../session/types.js";
 import type { CompactionSettings } from "./types.js";
 
+// 重新导出,让 options.ts 能直接从 settings.js 拿到
+export type { CompactionSettings } from "./types.js";
+
 // ── 默认设置 ──
 
 /**

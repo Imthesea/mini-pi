@@ -239,7 +239,7 @@ describe("compact() 底层函数", () => {
 describe("harness.compact() 业务编排", () => {
   function makeHooks() {
     return new DefaultAgentHarnessHooks({
-      context: { harness: null, session: {}, models: {}, messages: [] },
+      context: { harness: null, session: {}, messages: [] },
     });
   }
 
@@ -324,7 +324,7 @@ describe("harness.compact() 业务编排", () => {
 describe("harness.navigateTree() 业务编排", () => {
   function makeHooks() {
     return new DefaultAgentHarnessHooks({
-      context: { harness: null, session: {}, models: {}, messages: [] },
+      context: { harness: null, session: {}, messages: [] },
     });
   }
 

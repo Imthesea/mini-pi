@@ -597,7 +597,7 @@ export function transformMessages(messages, model): Message[] {
 **Phase 状态机**:`phase.ts` 定义 `AgentHarnessPhase` 字面量联合 + `assertPhase()` 转换检查。`abort()` 绕过 canTransition 检查,作为"逃生舱"强制回 idle(被中断的 harness 不能永远卡在 turn 状态)。
 
 **`prompt(text, options?)` 业务入口**:
-1. emit `before_agent_start` 钩子(handler 可改 messages / systemPrompt)
+1. emit `before_agent_start` 钩子(handler 可改 messages / systemPrompt;事件携带本轮入参 prompt / images / systemPrompt / resources)
 2. 断言 phase === "idle",切到 "turn"
 3. 构造 user 消息 + system prompt + AgentContext
 4. emit `context` 钩子(handler 可链式改 messages)
@@ -802,7 +802,7 @@ Phase 03: coding-agent 层(CLI 入口,草案)
 **关键设计**:
 - `AgentContext` / `AgentLoopConfig` 分离:**Context 装业务/状态**(systemPrompt / messages / tools),**Config 装机制/可注入项**(model / convertToLlm / streamFn / hooks / retry)
 - `ToolExecutionMode`:`"sequential" | "parallel"` — 工具执行模式
-- `QueueMode`:`"all" | "one-at-a-time"` — 队列处理模式
+- `QueueMode`:`"all" | "one-at-a-time"` — 队列处理模式;队列入队与消费(drain)时都 emit `queue_update`(对齐 pi)
 - `HookEvent` 幻影结果泛型:每个事件类型可携带"handler 返回值"的类型
 
 **交付标准 (DoD)**:

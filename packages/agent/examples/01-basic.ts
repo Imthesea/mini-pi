@@ -157,15 +157,11 @@ async function main() {
 
   // 订阅事件
   const eventLog: string[] = [];
-  const subscription = harness.subscribe();
-
-  (async () => {
-    for await (const event of subscription) {
-      const tag = eventTypeLabel(event);
-      eventLog.push(tag);
-      console.log(`  📡 ${tag}`);
-    }
-  })();
+  const unsubscribe = harness.subscribe((event) => {
+    const tag = eventTypeLabel(event);
+    eventLog.push(tag);
+    console.log(`  📡 ${tag}`);
+  });
 
   // 启动一个 turn
   console.log("\n--- 启动 harness.prompt() ---\n");
@@ -173,7 +169,7 @@ async function main() {
 
   // 等订阅拿到所有事件
   await new Promise((r) => setTimeout(r, 20));
-  subscription.cancel();
+  unsubscribe();
 
   console.log("\n=== 事件流总览 ===");
   console.log(`共 ${eventLog.length} 个事件:`);

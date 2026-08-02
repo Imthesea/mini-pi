@@ -172,22 +172,18 @@ async function main() {
   console.log("  启动 harness.prompt()...\n");
 
   // 订阅事件,打印 stream 端的文本增量
-  const subscription = harness.subscribe();
-  const subscriptionTask = (async () => {
-    for await (const event of subscription) {
-      if (
-        event.type === "message_update" &&
-        event.assistantMessageEvent.type === "text_delta"
-      ) {
-        process.stdout.write(event.assistantMessageEvent.delta);
-      }
+  const unsubscribe = harness.subscribe((event) => {
+    if (
+      event.type === "message_update" &&
+      event.assistantMessageEvent.type === "text_delta"
+    ) {
+      process.stdout.write(event.assistantMessageEvent.delta);
     }
-  })();
+  });
 
   const messages1 = await harness.prompt("我应该查看这条通知吗?");
   console.log("\n\n  ✓ 第 1 轮完成\n");
-  subscription.cancel();
-  await subscriptionTask.catch(() => {});
+  unsubscribe();
 
   // 验证:第 1 轮的 LLM 响应应包含 notification 相关关键词
   const assistantMsg1 = messages1.find((m) => m.role === "assistant");
@@ -226,9 +222,9 @@ async function main() {
   console.log("  ✓ steer x 2, followUp x 1, nextTurn x 1 已入队\n");
 
   // 验证 1:各队列内容独立
-  const steerDrained = demoHarness._drainSteerQueue();
-  const followDrained = demoHarness._drainFollowUpQueue();
-  const nextTurnDrained = demoHarness._drainNextTurnQueue();
+  const steerDrained = await demoHarness._drainSteerQueue();
+  const followDrained = await demoHarness._drainFollowUpQueue();
+  const nextTurnDrained = await demoHarness._drainNextTurnQueue();
   console.log(`  steer 排空: ${steerDrained.length} 条 → ${steerDrained.map(describeMessage).join(" | ")}`);
   console.log(`  followUp 排空: ${followDrained.length} 条 → ${followDrained.map(describeMessage).join(" | ")}`);
   console.log(`  nextTurn 排空: ${nextTurnDrained.length} 条 → ${nextTurnDrained.map(describeMessage).join(" | ")}`);
@@ -239,9 +235,9 @@ async function main() {
   demoHarness.steer("a");
   demoHarness.steer("b");
   demoHarness.steer("c");
-  const first = demoHarness._drainSteerQueue();
-  const second = demoHarness._drainSteerQueue();
-  const third = demoHarness._drainSteerQueue();
+  const first = await demoHarness._drainSteerQueue();
+  const second = await demoHarness._drainSteerQueue();
+  const third = await demoHarness._drainSteerQueue();
   console.log(`    第 1 次: ${first.map(describeMessage).join(" | ")}`);
   console.log(`    第 2 次: ${second.map(describeMessage).join(" | ")}`);
   console.log(`    第 3 次: ${third.map(describeMessage).join(" | ")}`);
@@ -265,8 +261,6 @@ async function main() {
   // 清理
   await harness.getHooks().dispose();
   await harness.getHooks().clear();
-  harness.dispose();
-  demoHarness.dispose();
 }
 
 main().catch((e) => {

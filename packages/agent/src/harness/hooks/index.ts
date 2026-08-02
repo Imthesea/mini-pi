@@ -1,20 +1,19 @@
 /**
  * harness/hooks 模块公共 API 入口。
  *
- * 本模块是 harness 的"扩展对接层",提供 20 个事件(8 核心 + 12 预声明)
+ * 本模块是 harness 的"扩展对接层",提供 12 个实际 emit 的事件
  * + 5 种变更语义的钩子系统。
  *
  * 主要导出:
  * - DefaultAgentHarnessHooks: 默认实现类
- * - 8 个核心事件类型(ContextHookEvent / BeforeAgentStartHookEvent 等)
- * - 12 个预声明事件类型
+ * - 12 个事件类型(ContextHookEvent / ToolCallHookEvent 等)
  * - AgentHarnessHookContext / AgentHarnessHookEvent / ResultOf 等公共类型
- * - SessionFacade / ModelFacade / AgentHarnessHookContextFacade 门面接口
+ * - SessionFacade 门面接口
  *
  * 使用示例:
  * ```ts
  * const hooks = new DefaultAgentHarnessHooks({
- *   context: { harness, session, models, messages: [] }
+ *   context: { harness, session, messages: [] }
  * });
  *
  * // 1. observer: 监听所有事件
@@ -33,7 +32,7 @@ export {
   type DefaultAgentHarnessHooksOptions,
 } from "./default-hooks.js";
 
-// ── 事件类型(8 核心) ──
+// ── 事件类型 ──
 
 export type {
   ContextHookEvent,
@@ -44,23 +43,10 @@ export type {
   SessionBeforeCompactHookEvent,
   ModelUpdateHookEvent,
   AbortHookEvent,
-} from "./types.js";
-
-// ── 事件类型(12 预声明,Task 4 阶段不 emit) ──
-
-export type {
-  BeforeProviderRequestHookEvent,
-  BeforeProviderPayloadHookEvent,
-  AfterProviderResponseHookEvent,
-  SessionCompactHookEvent,
   SessionBeforeTreeHookEvent,
+  SessionCompactHookEvent,
   SessionTreeHookEvent,
-  ThinkingLevelUpdateHookEvent,
-  ResourcesUpdateHookEvent,
-  ToolsUpdateHookEvent,
   QueueUpdateHookEvent,
-  SavePointHookEvent,
-  SettledHookEvent,
 } from "./types.js";
 
 // ── 公共联合类型 ──
@@ -69,12 +55,8 @@ export type {
   AgentHarnessHookEvent,
   AgentHarnessHookName,
   AgentHarnessHookContext,
-  AgentHarnessHookContextFacade,
   ResultOf,
   SessionFacade,
-  ModelFacade,
-  HookContextProvider,
-  HookSubscription,
 } from "./types.js";
 
 // ── 重新导出(避免外部 import 散落) ──

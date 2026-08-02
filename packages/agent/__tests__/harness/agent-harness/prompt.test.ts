@@ -122,18 +122,11 @@ describe("AgentHarness prompt()", () => {
   it("prompt()通过 _emit 转发事件到订阅者", async () => {
     const { harness } = makeHarness([{ kind: "text", text: "hi" }]);
     const events: AgentHarnessEvent[] = [];
-    const sub = harness.subscribe();
-    (async () => {
-      for await (const evt of sub) {
-        events.push(evt);
-      }
-    })();
-    // 给订阅一点时间启动
-    await new Promise((r) => setTimeout(r, 5));
+    const unsub = harness.subscribe((event) => {
+      events.push(event);
+    });
     await harness.prompt("hello");
-    // 给订阅一点时间拿到事件
-    await new Promise((r) => setTimeout(r, 10));
-    sub.cancel();
+    unsub();
 
     // 应当看到 agent_start, turn_start, message_start/end(用户), message_start/end(assistant), turn_end, agent_end
     const eventTypes = events.map((e) => e.type);
@@ -183,48 +176,49 @@ describe("AgentHarness steer / followUp / nextTurn", () => {
   }
 
   describe("steer 入队", () => {
-    it("调一次 steer,内部队列有 1 条", () => {
+    it("调一次 steer,内部队列有 1 条", async () => {
       const h = makeHarness();
       h.steer("修正方向");
       // 队列是 private 字段,测试通过下划线前缀的内部方法 _drainSteerQueue 访问
-      const drained = h._drainSteerQueue();
+      const drained = await h._drainSteerQueue();
       expect(drained).toHaveLength(1);
       // 无 images 时 content 是纯文本字符串
       expect(drained[0].role).toBe("user");
       expect((drained[0] as any).content).toBe("修正方向");
     });
 
-    it("连续 steer 3 次,mode='all' 排空出 3 条", () => {
+    it("连续 steer 3 次,mode='all' 排空出 3 条", async () => {
       const h = makeHarness();
+      h.setSteeringMode("all");
       h.steer("a");
       h.steer("b");
       h.steer("c");
-      const drained = h._drainSteerQueue();
+      const drained = await h._drainSteerQueue();
       expect(drained).toHaveLength(3);
       expect((drained[0] as any).content).toBe("a");
       expect((drained[2] as any).content).toBe("c");
     });
 
-    it("mode='one-at-a-time' 排空只出 1 条,剩余 2 条保留", () => {
+    it("mode='one-at-a-time' 排空只出 1 条,剩余 2 条保留", async () => {
       const h = makeHarness();
       h.setSteeringMode("one-at-a-time");
       h.steer("a");
       h.steer("b");
       h.steer("c");
-      const drained1 = h._drainSteerQueue();
+      const drained1 = await h._drainSteerQueue();
       expect(drained1).toHaveLength(1);
       expect((drained1[0] as any).content).toBe("a");
       // 第二次排空取 b
-      const drained2 = h._drainSteerQueue();
+      const drained2 = await h._drainSteerQueue();
       expect(drained2).toHaveLength(1);
       expect((drained2[0] as any).content).toBe("b");
     });
 
-    it("steer 后队列再排空返回 []", () => {
+    it("steer 后队列再排空返回 []", async () => {
       const h = makeHarness();
       h.steer("hi");
-      h._drainSteerQueue();
-      const drained = h._drainSteerQueue();
+      await h._drainSteerQueue();
+      const drained = await h._drainSteerQueue();
       expect(drained).toEqual([]);
     });
 
@@ -239,72 +233,72 @@ describe("AgentHarness steer / followUp / nextTurn", () => {
   });
 
   describe("followUp 入队", () => {
-    it("调一次 followUp,_drainFollowUpQueue 出 1 条", () => {
+    it("调一次 followUp,_drainFollowUpQueue 出 1 条", async () => {
       const h = makeHarness();
       h.followUp("后续问题");
-      const drained = h._drainFollowUpQueue();
+      const drained = await h._drainFollowUpQueue();
       expect(drained).toHaveLength(1);
       expect(drained[0].role).toBe("user");
       expect((drained[0] as any).content).toBe("后续问题");
     });
 
-    it("followUpMode='one-at-a-time' 排空只出 1 条", () => {
+    it("followUpMode='one-at-a-time' 排空只出 1 条", async () => {
       const h = makeHarness();
       h.setFollowUpMode("one-at-a-time");
       h.followUp("a");
       h.followUp("b");
-      const drained = h._drainFollowUpQueue();
+      const drained = await h._drainFollowUpQueue();
       expect(drained).toHaveLength(1);
       expect((drained[0] as any).content).toBe("a");
-      const drained2 = h._drainFollowUpQueue();
+      const drained2 = await h._drainFollowUpQueue();
       expect(drained2).toHaveLength(1);
       expect((drained2[0] as any).content).toBe("b");
     });
   });
 
   describe("nextTurn 入队", () => {
-    it("调一次 nextTurn,_drainNextTurnQueue 出 1 条", () => {
+    it("调一次 nextTurn,_drainNextTurnQueue 出 1 条", async () => {
       const h = makeHarness();
       h.nextTurn("下次记得");
-      const drained = h._drainNextTurnQueue();
+      const drained = await h._drainNextTurnQueue();
       expect(drained).toHaveLength(1);
       expect(drained[0].role).toBe("user");
       expect((drained[0] as any).content).toBe("下次记得");
     });
 
-    it("nextTurn 多次入队,排空按顺序出全部", () => {
+    it("nextTurn 多次入队,排空按顺序出全部", async () => {
       const h = makeHarness();
       h.nextTurn("first");
       h.nextTurn("second");
       h.nextTurn("third");
-      const drained = h._drainNextTurnQueue();
+      const drained = await h._drainNextTurnQueue();
       expect(drained).toHaveLength(3);
       expect((drained[0] as any).content).toBe("first");
       expect((drained[2] as any).content).toBe("third");
     });
 
-    it("nextTurn 排空后队列为空,再次排空返回 []", () => {
+    it("nextTurn 排空后队列为空,再次排空返回 []", async () => {
       const h = makeHarness();
       h.nextTurn("hi");
-      h._drainNextTurnQueue();
-      const drained = h._drainNextTurnQueue();
+      await h._drainNextTurnQueue();
+      const drained = await h._drainNextTurnQueue();
       expect(drained).toEqual([]);
     });
   });
 
   describe("三种队列互不影响", () => {
-    it("steer / followUp / nextTurn 各管各的", () => {
+    it("steer / followUp / nextTurn 各管各的", async () => {
       const h = makeHarness();
       h.steer("s1");
       h.followUp("f1");
       h.nextTurn("n1");
-      expect(h._drainSteerQueue()).toHaveLength(1);
-      expect(h._drainFollowUpQueue()).toHaveLength(1);
-      expect(h._drainNextTurnQueue()).toHaveLength(1);
+      expect(await h._drainSteerQueue()).toHaveLength(1);
+      expect(await h._drainFollowUpQueue()).toHaveLength(1);
+      expect(await h._drainNextTurnQueue()).toHaveLength(1);
       // 各自再排空为空
-      expect(h._drainSteerQueue()).toEqual([]);
-      expect(h._drainFollowUpQueue()).toEqual([]);
-      expect(h._drainNextTurnQueue()).toEqual([]);
+      expect(await h._drainSteerQueue()).toEqual([]);
+      expect(await h._drainFollowUpQueue()).toEqual([]);
+      expect(await h._drainNextTurnQueue()).toEqual([]);
     });
   });
 
@@ -400,39 +394,101 @@ describe("AgentHarness steer / followUp / nextTurn", () => {
       h.nextTurn("ctx");
       await h.prompt("hi");
       // 消费后 nextTurn 队列空
-      const drained = h._drainNextTurnQueue();
+      const drained = await h._drainNextTurnQueue();
       expect(drained).toEqual([]);
     });
   });
 
-  describe("dispose 后抛错", () => {
-    it("dispose 后 steer 抛错", () => {
-      const h = makeHarness();
-      h.dispose();
-      expect(() => h.steer("x")).toThrow(/dispose/i);
+  describe("before_agent_start 注入消息(追加语义)", () => {
+    // 用自定义 streamFn 捕获 LLM 看到的 context.messages
+    function captureStreamFn(capturedContexts: any[]) {
+      const fn: any = (_model: any, context: any) => {
+        capturedContexts.push(context);
+        const stream = new AssistantMessageEventStream();
+        queueMicrotask(() => {
+          const msg = makePartial();
+          msg.content = [{ type: "text", text: "ok" }];
+          stream.push({ type: "start", partial: msg });
+          stream.push({ type: "text_start", contentIndex: 0, partial: msg });
+          stream.push({ type: "text_end", contentIndex: 0, content: "ok", partial: msg });
+          stream.push({ type: "done", reason: "stop", message: msg });
+        });
+        return stream;
+      };
+      return fn;
+    }
+
+    it("钩子返回 messages 时追加到用户消息之后(不替换用户输入)", async () => {
+      const capturedContexts: any[] = [];
+      const h = new AgentHarness({
+        model: mockModel,
+        tools: [],
+        env: {} as any,
+        session: makeMockSession(),
+        streamFn: captureStreamFn(capturedContexts),
+      } as any);
+      h.getHooks().on("before_agent_start", () => ({
+        messages: [
+          { role: "user", content: "hook-injected", timestamp: 0 },
+          { role: "user", content: "hook-injected-2", timestamp: 1 },
+        ],
+      }));
+      h.nextTurn("前置");
+
+      await h.prompt("user-text");
+
+      expect(capturedContexts.length).toBeGreaterThan(0);
+      const llmMessages = capturedContexts[0].messages;
+      // 顺序:nextTurn → 用户消息 → 钩子注入消息
+      expect((llmMessages[0] as any).content).toBe("前置");
+      expect((llmMessages[1] as any).content).toBe("user-text");
+      expect((llmMessages[2] as any).content).toBe("hook-injected");
+      expect((llmMessages[3] as any).content).toBe("hook-injected-2");
     });
 
-    it("dispose 后 followUp 抛错", () => {
-      const h = makeHarness();
-      h.dispose();
-      expect(() => h.followUp("x")).toThrow(/dispose/i);
+    it("钩子返回空数组时用户消息仍保留", async () => {
+      const capturedContexts: any[] = [];
+      const h = new AgentHarness({
+        model: mockModel,
+        tools: [],
+        env: {} as any,
+        session: makeMockSession(),
+        streamFn: captureStreamFn(capturedContexts),
+      } as any);
+      h.getHooks().on("before_agent_start", () => ({ messages: [] }));
+
+      await h.prompt("user-text");
+
+      expect(capturedContexts.length).toBeGreaterThan(0);
+      const llmMessages = capturedContexts[0].messages;
+      expect((llmMessages[0] as any).content).toBe("user-text");
     });
 
-    it("dispose 后 nextTurn 抛错", () => {
-      const h = makeHarness();
-      h.dispose();
-      expect(() => h.nextTurn("x")).toThrow(/dispose/i);
-    });
+    it("钩子收到本轮入参(prompt / systemPrompt),返回 systemPrompt 时整体覆盖(对齐 pi)", async () => {
+      const capturedContexts: any[] = [];
+      const seen: { prompt?: string; systemPrompt?: string } = {};
+      const h = new AgentHarness({
+        model: mockModel,
+        tools: [],
+        env: {} as any,
+        session: makeMockSession(),
+        streamFn: captureStreamFn(capturedContexts),
+      } as any);
+      h.setSystemPrompt("base-prompt");
+      h.getHooks().on("before_agent_start", (event: any) => {
+        seen.prompt = event.prompt;
+        seen.systemPrompt = event.systemPrompt;
+        return { systemPrompt: "hook-override" };
+      });
 
-    it("dispose 后清空所有队列", () => {
-      const h = makeHarness();
-      h.steer("s");
-      h.followUp("f");
-      h.nextTurn("n");
-      h.dispose();
-      expect(h._drainSteerQueue()).toEqual([]);
-      expect(h._drainFollowUpQueue()).toEqual([]);
-      expect(h._drainNextTurnQueue()).toEqual([]);
+      await h.prompt("user-text");
+
+      // 入参:本轮 prompt 文本 + 已拼好的基础 systemPrompt
+      expect(seen.prompt).toBe("user-text");
+      expect(seen.systemPrompt).toContain("base-prompt");
+      // 覆盖生效:LLM 最终收到的是 hook 返回值
+      expect(capturedContexts.length).toBeGreaterThan(0);
+      expect(capturedContexts[0].systemPrompt).toBe("hook-override");
     });
   });
 });

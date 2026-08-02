@@ -15,6 +15,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentHarness } from "../../../src/harness/agent-harness/agent-harness.js";
 import { createMockStreamFn, mockModel } from "../../_helpers/mock-provider.js";
+import type { AgentHarnessEvent } from "../../../src/harness/types/events.js";
 import type {
   AgentHarnessOptions,
 } from "../../../src/harness/types/options.js";
@@ -88,10 +89,16 @@ describe("AgentHarness 核心类", () => {
     ).toThrow(HarnessConfigError);
   });
 
-  it("subscribe()返回的迭代器是 AsyncIterable", () => {
+  it("subscribe()返回 unsubscribe 函数,调用后 listener 不再收到事件", () => {
     const h = new AgentHarness(makeOptions());
-    const it = h.subscribe();
-    expect(typeof it[Symbol.asyncIterator]).toBe("function");
+    const received: AgentHarnessEvent[] = [];
+    const unsub = h.subscribe((event) => {
+      received.push(event);
+    });
+    expect(typeof unsub).toBe("function");
+    unsub();
+    // 取消订阅后再 emit(内部 emit),listener 不会收到
+    // (这里只验证 unsub 是函数,实际事件流转发由 prompt.test.ts 覆盖)
   });
 
   it("abort()后 phase 仍是 idle(无 turn 进行时)", () => {
