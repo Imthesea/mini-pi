@@ -1,20 +1,37 @@
 /**
- * compact + compaction-ops 单元测试。
+ * compaction 单元测试。
  *
  * 覆盖:
- * - compact() 真实跑通(用 mock model):生成 summary + 派生 CompactionResult
- * - compact() 不写 session(由 harness 负责 appendCompaction)
- * - compact() 接受 customInstructions
- * - runCompactOp 触发 session_before_compact 钩子
- * - 钩子 cancel: true 阻止压缩
- * - 钩子 compaction: 注入已有结果,跳过 LLM
- * - runCompactOp 完成后 emit session_compact
- * - runCompactOp 写 CompactionEntry 到 session
+ *
+ * 一、底层 `compact()` 函数(纯函数层)
+ * - 调 LLM 生成 CompactionResult
+ * - 不写 session(由 harness 负责)
+ * - 接受 customInstructions 覆盖 system prompt
+ * - 空 session 返回合理结果
+ * - details 包含 readFiles / modifiedFiles / customInstructions
+ *
+ * 二、harness.compact() 业务编排(主类方法)
+ * - 正常流程:生成 summary + 写 session + emit session_compact
+ * - 钩子 cancel: true:跳过压缩,返回 undefined
+ * - 钩子 compaction 注入:跳过 LLM
+ * - 空 session:返回 undefined
+ * - 错状态(phase !== idle)抛错
+ *
+ * 三、harness.navigateTree() 业务编排(主类方法)
+ * - 正常流程:生成 summary + moveTo + emit session_tree
+ * - 钩子 cancel: true:跳过跳转
+ * - 钩子 summary 注入:跳过 LLM
+ * - targetId = null:切到空 leaf
+ *
+ * 注:Task 11 重构(2026-08-02)后,runCompactOp / runNavigateTreeOp
+ *     已合回 AgentHarness 类的 compact() / navigateTree() 公共方法。
+ *     这些测试现在通过 harness 公共 API 测。
  */
 
 import { describe, expect, it, vi } from "vitest";
 import { compact } from "../../../src/harness/compaction/compact.js";
-import { runCompactOp, runNavigateTreeOp } from "../../../src/harness/agent-harness/compaction-ops.js";
+import { AgentHarness } from "../../../src/harness/agent-harness/agent-harness.js";
+import { NodeExecutionEnv } from "../../../src/harness/env/index.js";
 import { DefaultAgentHarnessHooks } from "../../../src/harness/hooks/index.js";
 import type { AgentMessage } from "../../../src/types.js";
 import type { SessionTreeEntry } from "../../../src/harness/session/types.js";
@@ -37,7 +54,6 @@ const mockModel: Model<any> = {
 function makeMockStreamFn(
   summaryText: string,
 ): Parameters<typeof compact>[2] {
-  // 显式标注 streamFn 参数类型,避免 Parameters 推导过宽导致子函数参数隐式 any
   const fn: Parameters<typeof compact>[2] = (
     _model: Model<any>,
     _context: { systemPrompt?: string; messages: AgentMessage[] },
@@ -74,7 +90,7 @@ function makeMessageEntry(
   };
 }
 
-/** Mock session,只记录 appendCompaction 调用 */
+/** Mock session,只记录 appendCompaction / moveTo / getBranch 等调用 */
 function makeMockSession(
   entries: SessionTreeEntry[] = [],
   options: { leafId?: string | null } = {},
@@ -107,6 +123,24 @@ function makeMockSession(
   } as any;
 }
 
+/** 构造最小可用的 AgentHarness(mock session + mock streamFn) */
+function makeHarness(
+  session: Session<any>,
+  streamFn: Parameters<typeof compact>[2],
+  hooks?: DefaultAgentHarnessHooks,
+): AgentHarness {
+  return new AgentHarness({
+    model: mockModel,
+    tools: [],
+    env: new NodeExecutionEnv({ cwd: process.cwd() }),
+    session,
+    streamFn: streamFn as any,
+    hooks: hooks ?? new DefaultAgentHarnessHooks({ context: null as any }),
+  });
+}
+
+// ── 一、底层 compact() 函数 ──
+
 describe("compact() 底层函数", () => {
   it("调 LLM 生成 CompactionResult", async () => {
     const entries: SessionTreeEntry[] = [
@@ -116,7 +150,7 @@ describe("compact() 底层函数", () => {
     const streamFn = makeMockStreamFn("Summary text");
 
     const result = await compact(session, mockModel, streamFn, {
-      settings: { keepRecentTokens: 0 }, // 强制压缩
+      settings: { keepRecentTokens: 0 },
     });
 
     expect(result.summary).toBe("Summary text");
@@ -160,7 +194,6 @@ describe("compact() 底层函数", () => {
 
     const result = await compact(session, mockModel, streamFn);
     expect(result.summary).toBe("empty summary");
-    // entries 为空:prepareCompaction 返回 firstKeptEntryId = "<empty>"
     expect(result.firstKeptEntryId).toBe("<empty>");
   });
 
@@ -201,7 +234,9 @@ describe("compact() 底层函数", () => {
   });
 });
 
-describe("runCompactOp() 业务编排", () => {
+// ── 二、harness.compact() 业务编排 ──
+
+describe("harness.compact() 业务编排", () => {
   function makeHooks() {
     return new DefaultAgentHarnessHooks({
       context: { harness: null, session: {}, models: {}, messages: [] },
@@ -216,15 +251,11 @@ describe("runCompactOp() 业务编排", () => {
     const hooks = makeHooks();
     const emitSpy = vi.spyOn(hooks, "emit");
     const streamFn = makeMockStreamFn("summary text");
+    const harness = makeHarness(session, streamFn, hooks);
 
-    const result = await runCompactOp({
-      session,
-      model: mockModel,
-      hooks,
-      streamFn,
-    });
+    const result = await harness.compact();
 
-    expect(result?.summary).toBe("summary text");
+    expect(result).toBe("summary text");
     expect(session.appendCompaction).toHaveBeenCalledTimes(1);
     expect(emitSpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: "session_before_compact" }),
@@ -232,6 +263,8 @@ describe("runCompactOp() 业务编排", () => {
     expect(emitSpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: "session_compact" }),
     );
+    // 状态机:compact 后 phase 回 idle
+    expect(harness.getPhase()).toBe("idle");
   });
 
   it("钩子 cancel: true:跳过压缩,返回 undefined", async () => {
@@ -239,16 +272,13 @@ describe("runCompactOp() 业务编排", () => {
     const hooks = makeHooks();
     hooks.on("session_before_compact", () => ({ cancel: true } as any));
     const streamFn = makeMockStreamFn("summary");
+    const harness = makeHarness(session, streamFn, hooks);
 
-    const result = await runCompactOp({
-      session,
-      model: mockModel,
-      hooks,
-      streamFn,
-    });
+    const result = await harness.compact();
 
     expect(result).toBeUndefined();
     expect(session.appendCompaction).not.toHaveBeenCalled();
+    expect(harness.getPhase()).toBe("idle");
   });
 
   it("钩子 compaction: 注入已有结果,跳过 LLM 调用", async () => {
@@ -262,41 +292,36 @@ describe("runCompactOp() 业务编排", () => {
     };
     hooks.on("session_before_compact", () => ({ compaction: injectedResult } as any));
     const streamFn = vi.fn(makeMockStreamFn("not called"));
+    const harness = makeHarness(session, streamFn as any, hooks);
 
-    const result = await runCompactOp({
-      session,
-      model: mockModel,
-      hooks,
-      streamFn: streamFn as any,
-    });
+    const result = await harness.compact();
 
-    expect(result?.summary).toBe("Injected summary");
+    expect(result).toBe("Injected summary");
     expect(streamFn).not.toHaveBeenCalled();
     expect(session.appendCompaction).toHaveBeenCalledTimes(1);
     // 注入的 compaction 应标记 fromHook = true
-    // appendCompaction 签名: (summary, firstKeptEntryId, tokensBefore, details?, fromHook?)
-    // 位置 4 = fromHook
-    // 用 as any 让 tsc 不收窄:appendCompaction 的真类型是 vi.fn(),带 .mock 属性
     const callArgs = (session as any).appendCompaction.mock.calls[0];
     expect(callArgs?.[4]).toBe(true); // fromHook
   });
 
-  it("空 session:返回 undefined", async () => {
+  it("phase 错状态抛错", async () => {
+    const session = makeMockSession();
     const hooks = makeHooks();
     const streamFn = makeMockStreamFn("summary");
+    const harness = makeHarness(session, streamFn, hooks);
 
-    const result = await runCompactOp({
-      session: null as any,
-      model: mockModel,
-      hooks,
-      streamFn,
-    });
+    // 模拟 harness 在 turn 状态
+    harness._setPhase("turn");
 
-    expect(result).toBeUndefined();
+    await expect(harness.compact()).rejects.toThrow();
+    // 错状态后 phase 不变
+    expect(harness.getPhase()).toBe("turn");
   });
 });
 
-describe("runNavigateTreeOp() 业务编排", () => {
+// ── 三、harness.navigateTree() 业务编排 ──
+
+describe("harness.navigateTree() 业务编排", () => {
   function makeHooks() {
     return new DefaultAgentHarnessHooks({
       context: { harness: null, session: {}, models: {}, messages: [] },
@@ -312,14 +337,9 @@ describe("runNavigateTreeOp() 业务编排", () => {
     const hooks = makeHooks();
     const emitSpy = vi.spyOn(hooks, "emit");
     const streamFn = makeMockStreamFn("Branch summary");
+    const harness = makeHarness(session, streamFn, hooks);
 
-    const branchId = await runNavigateTreeOp({
-      session,
-      model: mockModel,
-      hooks,
-      streamFn,
-      targetId: "root",
-    });
+    const branchId = await harness.navigateTree({ targetId: "root" });
 
     expect(branchId).toBe("branch-id");
     expect(session.moveTo).toHaveBeenCalledTimes(1);
@@ -329,6 +349,7 @@ describe("runNavigateTreeOp() 业务编排", () => {
     expect(emitSpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: "session_tree" }),
     );
+    expect(harness.getPhase()).toBe("idle");
   });
 
   it("钩子 cancel: true:跳过跳转,返回 undefined", async () => {
@@ -336,14 +357,9 @@ describe("runNavigateTreeOp() 业务编排", () => {
     const hooks = makeHooks();
     hooks.on("session_before_tree", () => ({ cancel: true } as any));
     const streamFn = makeMockStreamFn("summary");
+    const harness = makeHarness(session, streamFn, hooks);
 
-    const result = await runNavigateTreeOp({
-      session,
-      model: mockModel,
-      hooks,
-      streamFn,
-      targetId: "root",
-    });
+    const result = await harness.navigateTree({ targetId: "root" });
 
     expect(result).toBeUndefined();
     expect(session.moveTo).not.toHaveBeenCalled();
@@ -356,18 +372,12 @@ describe("runNavigateTreeOp() 业务编排", () => {
       summary: { summary: "Injected", details: { customInstructions: "x" } },
     } as any));
     const streamFn = vi.fn(makeMockStreamFn("not called"));
+    const harness = makeHarness(session, streamFn as any, hooks);
 
-    const branchId = await runNavigateTreeOp({
-      session,
-      model: mockModel,
-      hooks,
-      streamFn: streamFn as any,
-      targetId: "root",
-    });
+    const branchId = await harness.navigateTree({ targetId: "root" });
 
     expect(branchId).toBe("branch-id");
     expect(streamFn).not.toHaveBeenCalled();
-    // moveTo 是 vi.fn(),用 (session as any) 让 tsc 不收窄
     const moveToArgs = (session as any).moveTo.mock.calls[0];
     expect(moveToArgs?.[1]?.fromHook).toBe(true);
   });
@@ -376,14 +386,9 @@ describe("runNavigateTreeOp() 业务编排", () => {
     const session = makeMockSession();
     const hooks = makeHooks();
     const streamFn = vi.fn(makeMockStreamFn("summary"));
+    const harness = makeHarness(session, streamFn as any, hooks);
 
-    const branchId = await runNavigateTreeOp({
-      session,
-      model: mockModel,
-      hooks,
-      streamFn: streamFn as any,
-      targetId: null,
-    });
+    const branchId = await harness.navigateTree({ targetId: null });
 
     expect(streamFn).toHaveBeenCalled();
     expect(session.moveTo).toHaveBeenCalledWith(null, expect.any(Object));

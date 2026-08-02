@@ -58,9 +58,10 @@ export {
 } from "./agent-loop.js";
 
 // ── Harness 公共 API(Task 3 新增) ──
+//
+// Task 11 重构:isAgentHarness 改主类 static 方法,改用 AgentHarness.isAgentHarness(...)
 export {
   AgentHarness,
-  isAgentHarness,
   type Subscription,
   // Phase
   type AgentHarnessPhase,

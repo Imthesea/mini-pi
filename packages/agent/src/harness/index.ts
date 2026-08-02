@@ -7,9 +7,12 @@
  */
 
 // ── 主类(包含 config / prompt / subscribe 等全部方法) ──
+//
+// Task 11 重构(2026-08-02):
+// - Subscription 类型从主类 export(原 event-bus.ts 已合回)
+// - isAgentHarness 改主类 static 方法(原独立文件已删除)
 export { AgentHarness } from "./agent-harness/agent-harness.js";
-export { isAgentHarness } from "./agent-harness/is-agent-harness.js";
-export type { Subscription } from "./agent-harness/event-bus.js";
+export type { Subscription } from "./agent-harness/agent-harness.js";
 
 // ── Phase ──
 export {
