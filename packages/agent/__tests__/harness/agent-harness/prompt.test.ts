@@ -186,7 +186,7 @@ describe("AgentHarness steer / followUp / nextTurn", () => {
     it("调一次 steer,内部队列有 1 条", () => {
       const h = makeHarness();
       h.steer("修正方向");
-      // 通过 _drainSteerQueue 验证(因为队列是 # 私有)
+      // 队列是 private 字段,测试通过下划线前缀的内部方法 _drainSteerQueue 访问
       const drained = h._drainSteerQueue();
       expect(drained).toHaveLength(1);
       // 无 images 时 content 是纯文本字符串

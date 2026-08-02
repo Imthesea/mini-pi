@@ -1,5 +1,5 @@
 /**
- * AgentHarness 主类(单文件,~1100 行)。
+ * AgentHarness 主类(单文件)。
  *
  * 职责:
  * 1) 持有运行时配置(model / tools / env / session / resources / systemPrompt)
@@ -16,26 +16,17 @@
  * - helpers.ts(47 行,2 个纯函数)— 真独立可测纯函数
  * - hooks-bridge.ts(135 行,2 个桥接纯函数)— 真独立可测纯函数
  *
+ * 钩子事件 emit 位置(11 个核心事件)详见本文件各方法内的 `emitAsync(...)` / `emitAwait(...)` 调用。
+ *
  * Task 11 重构(2026-08-02):
  * - 删 8 个 agent-harness/ 胶水子文件(反模式 5/6 违反)
  * - 业务方法直接 this.xxx 操作,不再走协作层
  * - # 字段全部改 private
- * - harness: this 改为只传值(注:hook context.harness 是 facade 保留,
- *   但内部纯函数不再接受)
  *
- * 钩子事件 emit 位置(11 个核心事件):
- * - before_agent_start → prompt()
- * - context            → executeTurn() 调 runAgentLoop 前
- * - tool_call          → bridgeBeforeToolCall(AgentLoopConfig.beforeToolCall)
- * - tool_result        → bridgeAfterToolCall(AgentLoopConfig.afterToolCall)
- * - message_end        → runAgentLoop emit sink(message_end 时)
- * - model_update       → setModel() 末尾
- * - abort              → abort() 末尾
- * - session_before_compact → compact() 入口
- * - session_compact    → compact() 完成
- * - session_before_tree → navigateTree() 入口
- * - session_tree       → navigateTree() 完成
- * - queue_update       → steer() / followUp() / nextTurn() 末尾
+ * Task 12 重构(2026-08-02):见 plan § 修订记录
+ * - 抽 4 个内部 helper(getSessionInternal / appendSessionMessage /
+ *   emitAsync / emitAwait),删 5 处 session 强转 + 7 处 as any + 8 处 void 重复
+ * - 拆 executeTurn 为 5 个命名步骤私有方法,主流程从 90 行降到 28 行
  */
 
 import type { Model } from "@mimi/ai";
@@ -89,10 +80,6 @@ import {
   generateBranchSummary as runGenerateBranchSummary,
 } from "../compaction/branch-summarization.js";
 import type { CompactionResult } from "../compaction/types.js";
-import {
-  drainSteerQueue,
-  drainFollowUpQueue,
-} from "../queue.js";
 import type { Skill, SkillArgs } from "../skills/types.js";
 import type { PromptTemplate, PromptTemplateArgs } from "../prompt-templates/types.js";
 import type { Session } from "../session/session.js";
@@ -237,7 +224,7 @@ export class AgentHarness {
    * - messages: 空数组(handler 可读 session 时拿到真实数据)
    */
   private buildHookContext(): AgentHarnessHookContext {
-    const session = this.options.session as Session<any> | undefined;
+    const session = this.getSessionInternal();
     return {
       harness: this,
       session: session
@@ -309,6 +296,56 @@ export class AgentHarness {
     this.phase = phase;
   }
 
+  // ── 内部 helper(纯转发,无业务逻辑) ──
+
+  /**
+   * 取 session 实例(内部用,统一做类型断言)。
+   *
+   * 业务方法(executeTurn / compact / navigateTree / buildHookContext)
+   * 都通过这里拿 session,避免每处都写 `as Session<any> | undefined`。
+   */
+  private getSessionInternal(): Session<any> | undefined {
+    return this.options.session as Session<any> | undefined;
+  }
+
+  /**
+   * 写消息到 session(失败只 log,不阻塞 turn)。
+   *
+   * session 持久化失败不应该挂掉对话,所以统一用 fire-and-forget + log。
+   * 2 个调用点(executeTurn 入口的 user 消息、message_end 时的 message)。
+   */
+  private appendSessionMessage(
+    session: Session<any> | undefined,
+    message: AgentMessage,
+  ): void {
+    if (!session) return;
+    void session.appendMessage(message).catch((err) => {
+      console.error("[AgentHarness] session.appendMessage failed:", err);
+    });
+  }
+
+  /**
+   * 派发钩子事件(异步 fire-and-forget)。
+   *
+   * 包住 `void` + `as any`,所有"emit 但不关心结果"的地方都走这里。
+   * 8 处调用 → 1 处 `as any`,后续如放宽 HookEvent 类型可一处清理。
+   */
+  private emitAsync(event: { type: string; [key: string]: unknown }): void {
+    void this.hooks.emit(event as any);
+  }
+
+  /**
+   * 派发钩子事件并 await handler 结果(给 session_before_* 这种需要 handler 注入结果的用)。
+   *
+   * 调用方提供 T 形参,声明期望的 handler 返回类型(否则 emit 返回 unknown)。
+   * 例:`const r = await this.emitAwait<{ cancel?: boolean }>({ type: "session_before_compact" })`
+   */
+  private async emitAwait<T = unknown>(
+    event: { type: string; [key: string]: unknown },
+  ): Promise<T | undefined> {
+    return (await this.hooks.emit(event as any)) as T | undefined;
+  }
+
   // ── 订阅 ──
 
   /**
@@ -327,11 +364,11 @@ export class AgentHarness {
       queue: [],
       resolveNext: null,
       cancelled: false,
-      unsubscribe: () => {},
+      unsubscribe: null!,
     };
 
-    // 注册到 EventBus
-    const unsubscribe = this.addSubscriber((event) => {
+    // 注册到 EventBus(先拿到 unsubscribe,再塞进 internal,避免"先占位再填")
+    internal.unsubscribe = this.addSubscriber((event) => {
       if (internal.cancelled) return;
       if (internal.resolveNext) {
         const r = internal.resolveNext;
@@ -341,7 +378,6 @@ export class AgentHarness {
         internal.queue.push(event);
       }
     });
-    internal.unsubscribe = unsubscribe;
 
     return {
       [Symbol.asyncIterator](): AsyncIterator<AgentHarnessEvent> {
@@ -426,7 +462,7 @@ export class AgentHarness {
       this.phase = "idle";
     }
     // emit abort(不 await,避免阻塞主流程;fire-and-forget 语义)
-    void this.hooks.emit({ type: "abort" });
+    this.emitAsync({ type: "abort" });
   }
 
   // ── 配置:Getters ──
@@ -480,7 +516,7 @@ export class AgentHarness {
     this.assertNotDisposed();
     this.runtime.model = model;
     // emit model_update(fire-and-forget)
-    void this.hooks.emit({ type: "model_update" });
+    this.emitAsync({ type: "model_update" });
   }
 
   setTools(tools: AgentTool<any>[]): void {
@@ -493,7 +529,7 @@ export class AgentHarness {
     this.runtime.thinkingLevel = level;
   }
 
-  setSession(session: any): void {
+  setSession(session: Session<any> | undefined): void {
     this.assertNotDisposed();
     this.options.session = session;
   }
@@ -604,14 +640,12 @@ export class AgentHarness {
   /**
    * 单次 turn 的实际执行(私有方法)。
    *
-   * 流程:
-   * 1. drain nextTurn 队列(一次性全部,prepend 到 user 消息)
-   * 2. 同步钩子 context(让 context 事件 handler 看到最新 session)
-   * 3. 写 user message 到 session(失败不阻塞)
-   * 4. 构造 system prompt(优先用 before_agent_start 注入的)
-   * 5. 构造 AgentContext + emit context 钩子
-   * 6. 调 runAgentLoop,转发事件到 EventBus
-   *    - message_end 时 emit 钩子 + 异步 append 到 session
+   * 流程(每个步骤是一个命名私有方法,这里只做编排):
+   * 1. `_prepareTurnInput`     准备 nextTurn 队列 + user 消息
+   * 2. `_syncSessionForTurn`   同步钩子 context + 写 user 消息
+   * 3. `_buildTurnPrompt`      构造 system prompt + 初始 messages
+   * 4. `_buildTurnContext`     构造 AgentContext + emit context 钩子
+   * 5. `_runAgentLoopAndForward` 跑 agent-loop,转发事件到订阅者
    *
    * @param text              user 输入文本
    * @param options           可选 images
@@ -622,68 +656,98 @@ export class AgentHarness {
     options?: { images?: Array<{ data: string; mimeType: string }> },
     startHookResult?: { messages?: AgentMessage[]; systemPrompt?: string },
   ): Promise<AgentMessage[]> {
-    // 0. drain nextTurn 队列(预置上下文,在 prompt 入口消费)
+    // 1. 准备输入(nextTurn 队列 + user 消息)
+    const { userMessage, nextTurnMessages } = this._prepareTurnInput(
+      text,
+      options?.images,
+    );
+
+    // 2. 同步 session 状态(让 handler 看到最新 session + 写 user 消息)
+    this._syncSessionForTurn(userMessage);
+
+    // 3. 构造 prompt(system prompt + 初始 messages)
+    const systemPrompt = await this._buildTurnPrompt(startHookResult);
+    const initialMessages = this._combineInitialMessages(
+      nextTurnMessages,
+      userMessage,
+      startHookResult,
+    );
+
+    // 4. 构造 AgentContext + 走 context 钩子(handler 可改 messages)
+    const context = await this._buildTurnContext(initialMessages, systemPrompt);
+
+    // 5. 跑 agent-loop,转发事件
+    return await this._runAgentLoopAndForward(initialMessages, context);
+  }
+
+  /** 步骤 1:准备 turn 输入(drain nextTurn + 构造 user 消息) */
+  private _prepareTurnInput(
+    text: string,
+    images?: Array<{ data: string; mimeType: string }>,
+  ): { userMessage: AgentMessage; nextTurnMessages: AgentMessage[] } {
     const nextTurnMessages = this._drainNextTurnQueue();
+    const userMessage = this.buildUserMessage(text, images);
+    return { userMessage, nextTurnMessages };
+  }
 
-    // 1. 构造 user 消息
-    const userMessage: AgentMessage = {
-      role: "user",
-      content: buildUserContent(text, options?.images),
-      timestamp: Date.now(),
-    };
-
-    // 2. 同步钩子 context(让 context 事件 handler 看到最新 session)
+  /** 步骤 2:同步 session 状态(同步钩子 context + 写 user 消息) */
+  private _syncSessionForTurn(userMessage: AgentMessage): void {
     this._syncHookContext();
+    this.appendSessionMessage(this.getSessionInternal(), userMessage);
+  }
 
-    // 3. Session 写入:append user message(fire-and-forget 不阻塞 turn)
-    const session = this.options.session as Session<any> | undefined;
-    if (session) {
-      void session.appendMessage(userMessage).catch((err) => {
-        // session 写入失败只记日志(不阻塞 turn)
-        console.error("[AgentHarness] session.appendMessage failed:", err);
-      });
-    }
-
-    // 4. 构造 system prompt(优先用 before_agent_start 注入的)
+  /** 步骤 3a:构造 system prompt(优先用 before_agent_start 注入的) */
+  private async _buildTurnPrompt(
+    startHookResult?: { messages?: AgentMessage[]; systemPrompt?: string },
+  ): Promise<string> {
     const baseSystemPrompt =
       startHookResult?.systemPrompt ?? this.runtime.systemPrompt;
-    const systemPromptResult = buildSystemPrompt(baseSystemPrompt, {
+    const result = buildSystemPrompt(baseSystemPrompt, {
       model: this.runtime.model,
       tools: this.runtime.tools,
-      sessionId: extractSessionId(session),
+      sessionId: extractSessionId(this.getSessionInternal()),
       resources: this.runtime.resources,
     });
-    const systemPrompt =
-      typeof systemPromptResult === "string"
-        ? systemPromptResult
-        : await systemPromptResult;
+    return typeof result === "string" ? result : await result;
+  }
 
-    // 5. 初始 messages:用 before_agent_start 注入的,否则用 [userMessage]
-    //    nextTurn 消息 prepend 到 user 消息之前(若 before_agent_start 未注入)
-    const baseInitialMessages: AgentMessage[] = startHookResult?.messages ?? [
-      userMessage,
-    ];
-    const initialMessages: AgentMessage[] = [
-      ...nextTurnMessages,
-      ...baseInitialMessages,
-    ];
+  /** 步骤 3b:合并 nextTurn + user + before_agent_start 注入的消息为初始 messages */
+  private _combineInitialMessages(
+    nextTurnMessages: AgentMessage[],
+    userMessage: AgentMessage,
+    startHookResult?: { messages?: AgentMessage[]; systemPrompt?: string },
+  ): AgentMessage[] {
+    // 用 before_agent_start 注入的,否则用 [userMessage]
+    const baseInitial = startHookResult?.messages ?? [userMessage];
+    // nextTurn 消息 prepend 到 user 消息之前
+    return [...nextTurnMessages, ...baseInitial];
+  }
 
-    // 6. 构造 AgentContext
+  /** 步骤 4:构造 AgentContext + emit context 钩子(handler 可改 messages) */
+  private async _buildTurnContext(
+    initialMessages: AgentMessage[],
+    systemPrompt: string,
+  ): Promise<AgentContext> {
     const context: AgentContext = {
       systemPrompt,
       messages: initialMessages,
       tools: this.runtime.tools,
     };
-
-    // 7. emit context 事件(handler 可链式改 messages)
-    const contextResult = (await this.hooks.emit({ type: "context" })) as
-      | { messages?: AgentMessage[] }
-      | undefined;
-    if (contextResult?.messages !== undefined) {
-      context.messages = contextResult.messages;
+    const result = await this.emitAwait<{ messages?: AgentMessage[] }>({
+      type: "context",
+    });
+    if (result?.messages !== undefined) {
+      context.messages = result.messages;
     }
+    return context;
+  }
 
-    // 8. 构造 AgentLoopConfig
+  /** 步骤 5:跑 agent-loop,把事件转发到订阅者,message_end 时额外处理钩子+持久化 */
+  private async _runAgentLoopAndForward(
+    initialMessages: AgentMessage[],
+    context: AgentContext,
+  ): Promise<AgentMessage[]> {
+    const session = this.getSessionInternal();
     const config: AgentLoopConfig = {
       model: this.runtime.model,
       convertToLlm,
@@ -696,21 +760,18 @@ export class AgentHarness {
       getSteeringMessages: async () => this._drainSteerQueue(),
       getFollowUpMessages: async () => this._drainFollowUpQueue(),
     };
-
-    // 9. 调 runAgentLoop,转发事件到 EventBus
-    return await runAgentLoop(initialMessages, context, config, async (event) => {
-      if (event.type === "message_end") {
-        // fire-and-forget,不阻塞事件转发
-        void this.hooks.emit({ type: "message_end" });
-        // session 写入:append 当前结束的 message
-        if (session) {
-          void session.appendMessage(event.message).catch((err) => {
-            console.error("[AgentHarness] session.appendMessage failed:", err);
-          });
+    return await runAgentLoop(
+      initialMessages,
+      context,
+      config,
+      async (event) => {
+        if (event.type === "message_end") {
+          this.emitAsync({ type: "message_end" });
+          this.appendSessionMessage(session, event.message);
         }
-      }
-      await this.emit(event);
-    });
+        await this.emit(event);
+      },
+    );
   }
 
   // ── 业务方法:compact() + navigateTree() ──
@@ -734,15 +795,18 @@ export class AgentHarness {
     this._setPhase("compaction");
 
     try {
-      const session = this.options.session as Session<any> | undefined;
+      const session = this.getSessionInternal();
       if (!session) {
         return undefined;
       }
 
       // 1. emit session_before_compact(handler 可 cancel / 注入结果)
-      const beforeResult = (await this.hooks.emit({
+      const beforeResult = await this.emitAwait<{
+        cancel?: boolean;
+        compaction?: CompactionResult;
+      }>({
         type: "session_before_compact",
-      } as any)) as { cancel?: boolean; compaction?: CompactionResult } | undefined;
+      });
 
       if (beforeResult?.cancel === true) {
         return undefined;
@@ -770,7 +834,7 @@ export class AgentHarness {
       );
 
       // 4. emit session_compact(fire-and-forget)
-      void this.hooks.emit({ type: "session_compact" } as any);
+      this.emitAsync({ type: "session_compact" });
 
       return result.summary;
     } finally {
@@ -800,23 +864,21 @@ export class AgentHarness {
     this._setPhase("branch_summary");
 
     try {
-      const session = this.options.session as Session<any> | undefined;
+      const session = this.getSessionInternal();
       if (!session) {
         return undefined;
       }
 
       // 1. emit session_before_tree(handler 可 cancel / 注入 summary)
-      const beforeResult = (await this.hooks.emit({
+      const beforeResult = await this.emitAwait<{
+        cancel?: boolean;
+        summary?: { summary: string; details?: unknown };
+        customInstructions?: string;
+        label?: string;
+      }>({
         type: "session_before_tree",
         targetId: options.targetId,
-      } as any)) as
-        | {
-            cancel?: boolean;
-            summary?: { summary: string; details?: unknown };
-            customInstructions?: string;
-            label?: string;
-          }
-        | undefined;
+      });
 
       if (beforeResult?.cancel === true) {
         return undefined;
@@ -845,7 +907,7 @@ export class AgentHarness {
       });
 
       // 4. emit session_tree(fire-and-forget)
-      void this.hooks.emit({ type: "session_tree" } as any);
+      this.emitAsync({ type: "session_tree" });
 
       return branchEntryId;
     } finally {
@@ -910,27 +972,49 @@ export class AgentHarness {
   /**
    * 排空 steer 队列(agent-loop 的 getSteeringMessages 回调)。
    *
+   * 内联实现:直接读 `this.steerQueue` + 写 `this.steerQueue`,不走纯函数 + 借/还模式。
+   * - mode === "all":drained = 全部,this.steerQueue 清空
+   * - mode === "one-at-a-time":drained = 第一条,this.steerQueue 保留剩余
+   *
    * 内部方法(下划线前缀),测试可调,外部不应直接访问。
    *
    * @returns 排空的 steer 消息
    */
   _drainSteerQueue(): AgentMessage[] {
-    const result = drainSteerQueue(this.steerQueue, this.steeringMode);
-    this.steerQueue = [...result.remaining];
-    return result.drained;
+    if (this.steeringMode === "all") {
+      const drained = [...this.steerQueue];
+      this.steerQueue = [];
+      return drained;
+    }
+    // mode === "one-at-a-time"
+    if (this.steerQueue.length === 0) return [];
+    const [first, ...rest] = this.steerQueue;
+    this.steerQueue = rest;
+    return [first];
   }
 
   /**
    * 排空 follow-up 队列(agent-loop 的 getFollowUpMessages 回调)。
+   *
+   * 内联实现:同 _drainSteerQueue,直接读 `this.followUpQueue` + 写。
+   * - mode === "all":drained = 全部,this.followUpQueue 清空
+   * - mode === "one-at-a-time":drained = 第一条,this.followUpQueue 保留剩余
    *
    * 内部方法,测试可调。
    *
    * @returns 排空的 follow-up 消息
    */
   _drainFollowUpQueue(): AgentMessage[] {
-    const result = drainFollowUpQueue(this.followUpQueue, this.followUpMode);
-    this.followUpQueue = [...result.remaining];
-    return result.drained;
+    if (this.followUpMode === "all") {
+      const drained = [...this.followUpQueue];
+      this.followUpQueue = [];
+      return drained;
+    }
+    // mode === "one-at-a-time"
+    if (this.followUpQueue.length === 0) return [];
+    const [first, ...rest] = this.followUpQueue;
+    this.followUpQueue = rest;
+    return [first];
   }
 
   /**
@@ -966,7 +1050,7 @@ export class AgentHarness {
     this.assertNotDisposed();
     this.steerQueue.push(this.buildUserMessage(text, images));
     // fire-and-forget,失败由钩子系统内部 log,不影响主流程
-    void this.hooks.emit({ type: "queue_update" } as any);
+    this.emitAsync({ type: "queue_update" });
   }
 
   /**
@@ -987,7 +1071,7 @@ export class AgentHarness {
   ): void {
     this.assertNotDisposed();
     this.followUpQueue.push(this.buildUserMessage(text, images));
-    void this.hooks.emit({ type: "queue_update" } as any);
+    this.emitAsync({ type: "queue_update" });
   }
 
   /**
@@ -1010,7 +1094,7 @@ export class AgentHarness {
   ): void {
     this.assertNotDisposed();
     this.nextTurnQueue.push(this.buildUserMessage(text, images));
-    void this.hooks.emit({ type: "queue_update" } as any);
+    this.emitAsync({ type: "queue_update" });
   }
 
   /** 构造 user 消息(私有,steer/followUp/nextTurn 共用) */
