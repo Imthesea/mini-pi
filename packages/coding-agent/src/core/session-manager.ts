@@ -596,11 +596,11 @@ export class SessionManager {
   }
 
   /** 打开指定的会话文件 */
-  static open(path: string, sessionDir?: string): SessionManager {
+  static open(path: string, sessionDir?: string, cwdOverride?: string): SessionManager {
     const resolvedPath = resolvePath(path);
     let header: SessionHeader | null = null;
     if (existsSync(resolvedPath)) { header = readSessionHeaderForDiscovery(resolvedPath); }
-    const cwd = (header ? getSessionHeaderCwd(header) : undefined) ?? process.cwd();
+    const cwd = cwdOverride ?? (header ? getSessionHeaderCwd(header) : undefined) ?? process.cwd();
     const dir = sessionDir ? normalizePath(sessionDir) : resolve(resolvedPath, "..");
     return new SessionManager(cwd, dir, resolvedPath, true);
   }

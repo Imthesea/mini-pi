@@ -31,6 +31,22 @@ export {
 } from "./agent-session-runtime.js";
 export type { AgentSessionServices } from "./agent-session-services.js";
 export {
+  SettingsManager,
+  FileSettingsStorage,
+  InMemorySettingsStorage,
+  type Settings,
+  type SettingsStorage,
+  type SettingsError,
+  type SettingsScope,
+  type SettingsManagerCreateOptions,
+  type CompactionSettings,
+  type RetrySettings,
+  type TerminalSettings,
+  type ImageSettings,
+  type ThinkingBudgetsSettings,
+  type DefaultProjectTrust,
+} from "./settings-manager.js";
+export {
   createAgentSession,
   type CreateAgentSessionOptions,
   type CreateAgentSessionResult,
@@ -52,7 +68,6 @@ export {
   shouldCompact,
   DEFAULT_COMPACTION_SETTINGS,
   type CompactionResult,
-  type CompactionSettings,
   type CompactionPreparation,
   type CutPointResult,
   type ContextUsageEstimate,

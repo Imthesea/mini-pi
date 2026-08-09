@@ -166,6 +166,11 @@ export class AgentSession {
     this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
   }
 
+  /** 获取当前 agent state（对齐 Pi：AgentSession.state → Agent.state） */
+  get state() {
+    return this.agent.state;
+  }
+
   /** 获取模型运行时 */
   get modelRuntime(): ModelRuntime {
     return this._modelRuntime;

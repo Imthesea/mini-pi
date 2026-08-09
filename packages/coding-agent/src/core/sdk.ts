@@ -13,6 +13,8 @@ import { ModelRegistry } from "./model-registry.js";
 import { ModelRuntime } from "./model-runtime.js";
 import { resolveModel } from "./model-resolver.js";
 import { SessionManager } from "./session-manager.js";
+import { AgentSessionRuntime } from "./agent-session-runtime.js";
+import type { AgentSessionServices, AgentSessionRuntimeDiagnostic } from "./agent-session-services.js";
 
 // 重导出——供上层 import
 export {
@@ -53,6 +55,8 @@ export interface CreateAgentSessionOptions {
 export interface CreateAgentSessionResult {
   /** 创建的会话 */
   session: AgentSession;
+  /** 运行时——持有 session + services 生命周期 */
+  runtime: AgentSessionRuntime;
   /** 模型回退警告（若有） */
   modelFallbackMessage?: string;
 }
@@ -123,8 +127,24 @@ export async function createAgentSession(
     modelRuntime,
   });
 
+  // 7. 组装 services + runtime
+  const services: AgentSessionServices = {
+    cwd,
+    agentDir,
+    modelRuntime,
+    sessionManager,
+    diagnostics: [],
+  };
+
+  const runtime = new AgentSessionRuntime(session, services, async () => ({
+    session,
+    services,
+    diagnostics: [],
+  }));
+
   return {
     session,
+    runtime,
     modelFallbackMessage: undefined,
   };
 }

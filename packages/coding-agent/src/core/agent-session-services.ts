@@ -4,9 +4,15 @@
  * 从 pi 项目 core/agent-session-services.ts 抄来（V1 最小化）。
  */
 
+import { Agent } from "@mimi/agent";
 import { getAgentDir } from "../config.js";
+import { ModelRegistry } from "./model-registry.js";
 import { ModelRuntime } from "./model-runtime.js";
+import { resolveModel } from "./model-resolver.js";
+import { DEFAULT_MODEL } from "../defaults.js";
+import { anthropicProvider, openaiProvider, deepseekProvider } from "@mimi/ai";
 import type { SessionManager } from "./session-manager.js";
+import { AgentSession } from "./agent-session.js";
 
 // ═══════════════════════════════════════════
 // 类型
@@ -95,7 +101,42 @@ export async function createAgentSessionServices(
  * V1 桩——实际逻辑在 sdk.ts 的 createAgentSession() 中完成。
  */
 export function createAgentSessionFromServices(
-  _options: CreateAgentSessionFromServicesOptions,
+  options: CreateAgentSessionFromServicesOptions,
 ): any {
-  throw new Error("Use createAgentSession() instead");
+  const { services, sessionManager, model, thinkingLevel } = options;
+
+  // 确保 modelRuntime 已初始化
+  if (!services.modelRuntime || !(services.modelRuntime as any).registry) {
+    const registry = new ModelRegistry();
+    registry.register(deepseekProvider());
+    registry.register(openaiProvider());
+    registry.register(anthropicProvider());
+    (services as any).modelRuntime = new ModelRuntime(registry);
+  }
+
+  // 解析模型
+  const resolvedModel = typeof model === "string"
+    ? resolveModel(model, services.modelRuntime, DEFAULT_MODEL)
+    : (model ?? resolveModel(undefined, services.modelRuntime, DEFAULT_MODEL));
+
+  // 创建 Agent
+  const agent = new Agent({
+    initialState: {
+      systemPrompt: "",
+      model: resolvedModel,
+      thinkingLevel: (thinkingLevel as any) ?? "medium",
+      tools: [],
+    },
+    sessionId: sessionManager.getSessionId(),
+  });
+
+  // 创建 AgentSession
+  const session = new AgentSession({
+    agent,
+    sessionManager,
+    modelRuntime: services.modelRuntime,
+    cwd: services.cwd,
+  });
+
+  return { session, modelFallbackMessage: undefined };
 }
