@@ -43,7 +43,7 @@
 | AgentSession | 完整（~2000 行） | 最小化（~400 行），去 extensions/TUI/slash 命令/fork |
 | Interactive Mode | Ink TUI（~3000 行） | 极简 readline（~150 行） |
 | Print Mode | 完整 | 完整（text + json 输出） |
-| 工具 | 8+（read/write/edit/bash/find/grep/ls） | 3（read_file/write_file/bash） |
+| 工具 | 8+（read/write/edit/bash/find/grep/ls） | 8+（read/write/edit/bash/find/grep/ls） |
 | 扩展系统 | 完整 | 空壳（只有类型导出） |
 | Slash 命令 | 30+ | 空壳 |
 | RPC Mode | 完整 | 不做（文件不存在） |
@@ -62,27 +62,31 @@
 | 渲染 | `console.log` 纯文本 + 原生 ANSI | 0 依赖 |
 | REPL | `node:readline/promises` | 0 依赖 |
 | Session 存储 | 复用 agent 层 `JsonlSessionStorage` | 不重复造轮子 |
-| 工具集合 | `read_file` + `write_file` + `bash` | 最小三件，后续加 edit/find/grep/ls |
+| 工具集合 | 跟pi一致 | 跟pi一致 |
 | 环境变量 | `MIMI_API_KEY_*` | 不污染公共命名空间 |
 
-### 暂不做（显式列表）
+### 后续实现（显式标注，防止遗忘）
 
-- ❌ TUI / Ink / 任何 UI 库
-- ❌ Slash 命令（`/model` `/compact` `/clear` 等）
-- ❌ 扩展系统（extensions 目录只有空壳类型导出）
-- ❌ OAuth / 交互式登录
-- ❌ MCP server / client
-- ❌ Fork / Branch 分支
-- ❌ RPC Mode
-- ❌ 多会话切换 / 会话列表 UI
-- ❌ Token 计数显示 / 进度条
-- ❌ 持久化设置（`~/.mimi/config.json`）
-- ❌ 自动压缩触发（只手动 `compact()`）
-- ❌ Keybindings
-- ❌ Skills / Prompt Templates（loading 侧）
-- ❌ Model Cycling（Ctrl+P）
-- ❌ 文件参数（`@file`）
-- ❌ --fork / --session-id / --list-models / --provider / --tools / --no-tools flags
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| TUI / Ink / 任何 UI 库 | 🔴 后续 | V1 用 readline，后续替换为 Ink TUI |
+| Slash 命令（`/model` `/compact` `/clear` 等） | 🔴 后续 | `slash-commands.ts` 空壳，后续实现 |
+| 扩展系统 | 🔴 后续 | `extensions/` 目录只有空壳类型导出 |
+| OAuth / 交互式登录 | 🔴 后续 | V1 只走环境变量 |
+| MCP server / client | 🔴 后续 | |
+| Fork / Branch 分支 | 🔴 后续 | `fork()` 抛 "not implemented" |
+| RPC Mode | 🔴 后续 | `modes/rpc/` 目录不存在 |
+| 多会话切换 / 会话列表 UI | 🔴 后续 | |
+| Token 计数显示 / 进度条 | 🔴 后续 | |
+| 持久化设置（`~/.mimi/config.json`） | 🔴 后续 | V1 无 SettingsManager |
+| 自动压缩触发 | 🔴 后续 | V1 只手动 `compact()` |
+| Keybindings | 🔴 后续 | |
+| Skills / Prompt Templates（loading 侧） | 🔴 后续 | |
+| Model Cycling（Ctrl+P） | 🔴 后续 | |
+| 文件参数（`@file`） | 🔴 后续 | |
+| `--fork` / `--session-id` / `--list-models` / `--provider` / `--tools` / `--no-tools` flags | 🔴 后续 | V1 只支持基础 flags |
+| AgentSession 重试逻辑（auto-retry） | 🔴 后续 | V1 不做 context overflow 自动重试 + compact |
+| 🟢 仅 Fork 不做，`newSession` 本期实现 | 🟢 V1 | AgentSessionRuntime.newSession() 完整实现 |
 
 ---
 
@@ -125,7 +129,12 @@ packages/coding-agent/
         index.ts                # BUILTIN_TOOLS 数组导出
         read.ts                 # read_file 工具
         write.ts                # write_file 工具
+        edit.ts                 # edit 工具（替换文件内容）
+        edit-diff.ts            # edit-diff 工具（diff 补丁）
         bash.ts                 # bash 工具
+        find.ts                 # find 工具（搜索文件名）
+        grep.ts                 # grep 工具（搜索文件内容）
+        ls.ts                   # ls 工具（列出目录）
 
       extensions/               # 扩展系统（全部空壳）
         index.ts                # 只导出类型
@@ -263,8 +272,8 @@ agent.prompt("你好")
 对应 Pi 的 `AgentSession`。包装 `Agent`，提供 coding-agent 专属能力：
 - Session 持久化（订阅 Agent 事件 → 自动写 JSONL）
 - Compaction 编排
-- 重试逻辑
 - Model 管理
+- 🔴 **重试逻辑（auto-retry）后续实现**
 
 ### 3.2 核心 API（V1 完整实现）
 
@@ -348,14 +357,15 @@ agent event → AgentSession._handleAgentEvent()
 
 写 session 是 **fire-and-forget**，失败只 `console.error`，不阻塞主流程。
 
-### 3.6 V1 不做（属性存在但空/桩）
+### 3.6 V1 不做（后续实现）
 
-- `extensionRunner` → `undefined`（extension 事件 handler no-op）
-- `navigateTree()` → 抛 `"not implemented"`
-- `fork()` → 抛 `"not implemented"`
-- `scopedModels` → 空数组
-- `keybindings` → 空
-- `slashCommands` → 空 Map
+- 🔴 `extensionRunner` → `undefined`（extension 事件 handler no-op）
+- 🔴 `navigateTree()` → 抛 `"not implemented"`
+- 🔴 `fork()` → 抛 `"not implemented"`
+- 🔴 `scopedModels` → 空数组
+- 🔴 `keybindings` → 空
+- 🔴 `slashCommands` → 空 Map
+- 🔴 `setModel` / `setThinkingLevel` → 🟢 V1 完整实现
 
 ---
 
@@ -442,8 +452,8 @@ compact(session, model, streamFn):
 ### 5.4 触发时机
 
 在 `AgentSession` 中：
-- **手动**：用户调 `session.compact()`
-- **自动**：context overflow → auto-retry → compact → retry
+- 🟢 **手动**：用户调 `session.compact()` — V1 实现
+- 🔴 **自动**：context overflow → auto-retry → compact → retry — 后续实现
 
 ---
 
@@ -489,13 +499,20 @@ export class ModelRuntime {
 
 ## 7. Tools（core/tools/）
 
-### 7.1 三个内置工具
+### 7.1 内置工具（V1 全部实现）
+
+对齐 Pi 的完整工具集：
 
 | 文件 | 工具名 | Schema | 实现 |
 |------|--------|--------|------|
-| `read.ts` | read_file | `{ path: string }` | `fs.readFile` + 路径安全检查 |
+| `read.ts` | read_file | `{ path: string, offset?: number, limit?: number }` | `fs.readFile` + 路径安全检查 |
 | `write.ts` | write_file | `{ path: string, content: string }` | `fs.writeFile` + 路径安全检查 + 自动创建父目录 |
-| `bash.ts` | bash | `{ command: string, timeoutMs?: number }` | `child_process.exec` + 超时 30s + 输出截断 50KB |
+| `edit.ts` | edit | `{ path: string, old_string: string, new_string: string, replace_all?: boolean }` | 读文件 → 精确替换 → 写回 |
+| `edit-diff.ts` | edit_diff | `{ path: string, diff: string }` | 读文件 → apply diff → 写回 |
+| `bash.ts` | bash | `{ command: string, timeoutMs?: number, maxOutputBytes?: number }` | `child_process.exec` + 超时 30s + 输出截断 50KB |
+| `find.ts` | find | `{ pattern: string, path?: string }` | `fs.readdir` 递归 + glob 匹配 |
+| `grep.ts` | grep | `{ pattern: string, path?: string, glob?: string }` | ripgrep 风格内容搜索 |
+| `ls.ts` | ls | `{ path?: string }` | `fs.readdir` 列出目录内容 |
 
 ### 7.2 路径安全检查
 
@@ -621,7 +638,7 @@ main(argv):
 
 | 变量 | 用途 |
 |------|------|
-| `MIMI_MODEL` | 默认模型（默认 `claude-sonnet-4-20250514`） |
+| `MIMI_MODEL` | 默认模型（默认 `deepseek-chat`） |
 | `MIMI_API_KEY_ANTHROPIC` | Anthropic Key |
 | `MIMI_API_KEY_OPENAI` | OpenAI Key |
 | `MIMI_API_KEY_DEEPSEEK` | DeepSeek Key |
@@ -654,8 +671,8 @@ export class AgentSessionRuntime {
   constructor(createRuntime, options);
 
   dispose(): Promise<void>;
-  newSession(options?): Promise<void>;  // V1: 抛 "not implemented"
-  fork(entryId, options?): Promise<...>;  // V1: 抛 "not implemented"
+  newSession(options?): Promise<void>;  // 🟢 V1 完整实现
+  fork(entryId, options?): Promise<...>;  // 🔴 后续实现
 }
 ```
 
@@ -693,12 +710,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions): Pr
 | **Step 2** | coding-agent 包骨架 | `package.json` + `tsconfig` + `config.ts` + `bin/mimi.mjs` + 所有空壳文件 | ~300 |
 | **Step 3** | SessionManager | `core/session-manager.ts` | ~200 |
 | **Step 4** | ModelRuntime + ModelRegistry + ModelResolver | `core/model-runtime.ts` + `core/model-registry.ts` + `core/model-resolver.ts` | ~300 |
-| **Step 5** | 三个工具 | `core/tools/read.ts` `write.ts` `bash.ts` `index.ts` | ~250 |
+| **Step 5** | 所有内置工具（8 个） | `core/tools/read.ts` `write.ts` `edit.ts` `edit-diff.ts` `bash.ts` `find.ts` `grep.ts` `ls.ts` `index.ts` | ~500 |
 | **Step 6** | AgentSession + Runtime + Services + SDK | `core/agent-session.ts` + `agent-session-runtime.ts` + `agent-session-services.ts` + `sdk.ts` | ~500 |
 | **Step 7** | Compaction + Messages + SystemPrompt | `core/compaction/` + `core/messages.ts` + `core/system-prompt.ts` | ~300 |
 | **Step 8** | Print Mode + Interactive Mode + main.ts + cli.ts | `modes/print-mode.ts` + `modes/interactive/` + `main.ts` + `cli.ts` | ~400 |
 
-**总预估：~2650 行**
+**总预估：~2900 行**
 
 ---
 
