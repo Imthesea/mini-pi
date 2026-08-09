@@ -1,0 +1,23 @@
+{
+  "name": "@mimi/coding-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "mimi": "./dist/bin/mimi.mjs"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mimi/agent": "workspace:*",
+    "@mimi/ai": "workspace:*",
+    "@sinclair/typebox": "^0.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  }
+}
