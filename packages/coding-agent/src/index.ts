@@ -7,3 +7,8 @@
 // 公共 API 随各 Task 逐步补全
 export { APP_NAME, APP_TITLE, VERSION, getAgentDir, getPackageDir } from "./config.js";
 export { DEFAULT_MODEL, DEFAULT_THINKING_LEVEL } from "./defaults.js";
+export {
+  SessionManager,
+  type SessionInfo,
+  type SessionEntry,
+} from "./core/index.js";
