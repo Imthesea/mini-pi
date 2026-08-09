@@ -19,6 +19,9 @@ export { isRetryableAssistantError } from "./utils/retry.js";
 // 事件流
 export { EventStream, AssistantMessageEventStream } from "./stream/index.js";
 
+// 文本工具
+export { contentText } from "./utils/text.js";
+
 // 认证
 export { envApiKey } from "./auth/index.js";
 

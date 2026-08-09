@@ -35,3 +35,32 @@ export {
   type CreateAgentSessionOptions,
   type CreateAgentSessionResult,
 } from "./sdk.js";
+// Task 7
+export { buildSystemPrompt, type BuildSystemPromptOptions } from "./system-prompt.js";
+export { convertToLlm } from "./messages.js";
+export { executeBashWithOperations, type BashExecutorOptions, type BashResult } from "./bash-executor.js";
+export {
+  compact,
+  prepareCompaction,
+  generateSummary,
+  estimateTokens,
+  estimateContextTokens,
+  calculateContextTokens,
+  findCutPoint,
+  findTurnStartIndex,
+  getLastAssistantUsage,
+  shouldCompact,
+  DEFAULT_COMPACTION_SETTINGS,
+  type CompactionResult,
+  type CompactionSettings,
+  type CompactionPreparation,
+  type CutPointResult,
+  type ContextUsageEstimate,
+} from "./compaction/index.js";
+export { serializeConversation, SUMMARIZATION_SYSTEM_PROMPT } from "./compaction/utils.js";
+export {
+  COMPACTION_SUMMARY_PREFIX,
+  COMPACTION_SUMMARY_SUFFIX,
+  type CompactionSummaryMessage,
+  type BranchSummaryMessage,
+} from "./messages.js";

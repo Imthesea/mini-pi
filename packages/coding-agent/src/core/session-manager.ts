@@ -9,6 +9,7 @@
 
 import type { AgentMessage } from "@mimi/agent";
 import { randomUUID } from "crypto";
+import { createCompactionSummaryMessage } from "./messages.js";
 import {
   appendFileSync,
   closeSync,
@@ -105,10 +106,26 @@ export interface ModelChangeEntry extends SessionEntryBase {
 }
 
 /** 会话条目联合类型 */
+/** 压缩摘要条目 */
+export interface CompactionEntry<T = unknown> extends SessionEntryBase {
+  type: "compaction";
+  /** 生成的摘要文本 */
+  summary: string;
+  /** 压缩后第一个被保留的条目 id */
+  firstKeptEntryId: string;
+  /** 压缩前的 token 数 */
+  tokensBefore: number;
+  /** 扩展特定数据 */
+  details?: T;
+  /** 是否由扩展生成 */
+  fromHook?: boolean;
+}
+
 export type SessionEntry =
   | SessionMessageEntry
   | ThinkingLevelChangeEntry
-  | ModelChangeEntry;
+  | ModelChangeEntry
+  | CompactionEntry;
 
 /** 文件条目——包含头部和所有会话条目 */
 export type FileEntry = SessionHeader | SessionEntry;
@@ -229,13 +246,16 @@ export function sessionEntryToContextMessages(entry: SessionEntry): AgentMessage
     }
     return [message];
   }
+  if (entry.type === "compaction") {
+    return [createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp) as any];
+  }
   return [];
 }
 
 /** 构建会话上下文——从当前叶子回溯，返回供 LLM 使用的消息列表 */
 export function buildSessionContext(
   entries: SessionEntry[],
-  leafId: string | null,
+  leafId: string | null = null,
 ): SessionContext {
   const path = buildSessionPath(entries, leafId);
   const { thinkingLevel, model } = getSessionContextSettings(path);
@@ -522,6 +542,22 @@ export class SessionManager {
     const entry: ModelChangeEntry = {
       type: "model_change", id: generateId(this.byId), parentId: this.leafId,
       timestamp: new Date().toISOString(), provider, modelId,
+    };
+    this._appendEntry(entry);
+    return entry.id;
+  }
+
+  /** 在当前叶子下追加一条压缩摘要，然后推进叶子。返回条目 id */
+  appendCompaction<T = unknown>(
+    summary: string,
+    firstKeptEntryId: string,
+    tokensBefore: number,
+    details?: T,
+    fromHook?: boolean,
+  ): string {
+    const entry: CompactionEntry<T> = {
+      type: "compaction", id: generateId(this.byId), parentId: this.leafId,
+      timestamp: new Date().toISOString(), summary, firstKeptEntryId, tokensBefore, details, fromHook,
     };
     this._appendEntry(entry);
     return entry.id;

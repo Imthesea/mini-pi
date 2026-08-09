@@ -92,6 +92,10 @@ export type StopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
 export interface Usage {
   input: number;
   output: number;
+  /** 🔴 后续实现——prompt caching 读 token 数 */
+  cacheRead?: number;
+  /** 🔴 后续实现——prompt caching 写 token 数 */
+  cacheWrite?: number;
   totalTokens: number;
   cost: {
     input: number;
