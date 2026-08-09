@@ -8,3 +8,6 @@ export {
   type SessionInfo,
   type SessionEntry,
 } from "./session-manager.js";
+export { ModelRegistry } from "./model-registry.js";
+export { ModelRuntime } from "./model-runtime.js";
+export { resolveModel } from "./model-resolver.js";

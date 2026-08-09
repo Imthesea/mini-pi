@@ -12,3 +12,4 @@ export {
   type SessionInfo,
   type SessionEntry,
 } from "./core/index.js";
+export { ModelRegistry, ModelRuntime, resolveModel } from "./core/index.js";
