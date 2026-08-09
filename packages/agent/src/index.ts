@@ -48,6 +48,9 @@ export type {
   UserMessage,
 } from "@mimi/ai";
 
+// Agent 类（有状态包装器，照抄 Pi agent.ts）
+export { Agent, type AgentState, type AgentOptions } from "./agent.js";
+
 // agent-loop 公共 API
 // 注意:不再有 agentLoopContinue / runAgentLoopContinue。
 // "继续" 通过传空数组 prompts = [] 表达(详见 agent-loop.ts 顶部注释)。
