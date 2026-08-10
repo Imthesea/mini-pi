@@ -111,8 +111,11 @@ export class InteractiveMode {
               case "text_end":
                 process.stdout.write("\n");
                 break;
+              case "thinking_start":
+                process.stdout.write(color("🤔 ", "gray"));
+                break;
               case "thinking_delta":
-                process.stdout.write(color(`🤔 ${e.assistantMessageEvent.delta ?? ""}`, "gray"));
+                process.stdout.write(color(e.assistantMessageEvent.delta ?? "", "gray"));
                 break;
               case "thinking_end":
                 process.stdout.write("\n");
