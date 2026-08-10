@@ -18,7 +18,7 @@ import { DEFAULT_THINKING_LEVEL } from "../defaults.js";
 export const defaultModelPerProvider: Record<KnownProvider, string> = {
   anthropic: "claude-sonnet-4-20250514",
   openai: "gpt-5.5",
-  deepseek: "deepseek-chat",
+  deepseek: "deepseek-v4-flash",
 } as Record<KnownProvider, string>;
 
 // 🔴 Pi: 支持 50+ provider（amazon-bedrock / google / groq / xai 等）—— V1 只支持 3 个

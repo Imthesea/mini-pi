@@ -117,6 +117,9 @@ export async function createAgentSession(
       tools: [],
     },
     sessionId: sessionManager.getSessionId(),
+    streamFn: async (m: any, ctx: any, opts: any) => {
+      return modelRuntime.stream(m, ctx, opts);
+    },
   });
 
   // 6. 创建 AgentSession

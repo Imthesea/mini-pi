@@ -6,7 +6,7 @@
 
 import type { ThinkingLevel } from "@mimi/agent";
 
-export const DEFAULT_MODEL = "deepseek-chat";
+export const DEFAULT_MODEL = "deepseek-v4-flash";
 export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
 
 export const DEFAULT_SESSION_DIR_NAME = ".mimi/sessions";
