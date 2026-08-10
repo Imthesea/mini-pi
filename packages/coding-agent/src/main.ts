@@ -23,6 +23,7 @@ import { SessionManager } from "./core/session-manager.js";
 import { SettingsManager } from "./core/settings-manager.js";
 import { InteractiveMode, runPrintMode } from "./modes/index.js";
 import { color } from "./utils/ansi.js";
+import { shouldRunFirstTimeSetup, showFirstTimeSetup } from "./cli/startup-ui.js";
 import { resolvePath } from "./utils/paths.js";
 
 // 🔴 Pi: chalk → color()
@@ -304,7 +305,10 @@ export async function main(args: string[]): Promise<void> {
   const startupSettingsManager = SettingsManager.create(cwd, agentDir);
   reportDiagnostics(collectSettingsDiagnostics(startupSettingsManager, "startup session lookup"));
 
-  // 🔴 Pi: shouldRunFirstTimeSetup / showFirstTimeSetup —— V1 不做
+  // 首次运行引导：检测 .env 是否有 API Key，没有则弹出 TUI 收集
+  if (appMode === "interactive" && shouldRunFirstTimeSetup(cwd)) {
+    await showFirstTimeSetup(cwd);
+  }
 
   // ========== 9. 确定运行时 cwd 和创建会话管理器 ==========
   const envSessionDir = process.env.MIMI_SESSION_DIR;

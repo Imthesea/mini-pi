@@ -66,6 +66,9 @@ importers:
       '@mimi/ai':
         specifier: workspace:*
         version: link:../ai
+      '@mimi/tui':
+        specifier: workspace:*
+        version: link:../tui
       '@sinclair/typebox':
         specifier: ^0.34.0
         version: 0.34.52
