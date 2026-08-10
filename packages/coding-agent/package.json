@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "mimi": "./dist/bin/mimi.mjs"
+    "mimi": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
