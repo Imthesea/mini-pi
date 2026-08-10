@@ -2,8 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
-    "composite": true
+    "paths": {
+      "@mimi/ai": ["../ai/dist/index.d.ts"]
+    },
+    "rootDir": "./src"
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "**/*.d.ts", "src/**/*.d.ts"]
 }

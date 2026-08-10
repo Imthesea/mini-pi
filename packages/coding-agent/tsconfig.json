@@ -2,11 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
+    "paths": {
+      "@mimi/agent": ["../agent/dist/index.d.ts"],
+      "@mimi/ai": ["../ai/dist/index.d.ts"]
+    },
     "rootDir": "src"
   },
   "include": ["src"],
-  "references": [
-    { "path": "../agent" },
-    { "path": "../ai" }
-  ]
+  "exclude": ["node_modules", "dist"]
 }
