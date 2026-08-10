@@ -4,7 +4,7 @@
  */
 
 import * as fs from "node:fs";
-import { StdinBuffer } from "./stdin-buffer.js";
+import { StdinBuffer } from "./stdin-buffer.ts";
 
 /**
  * Minimal terminal interface for TUI

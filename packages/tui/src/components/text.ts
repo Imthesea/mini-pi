@@ -3,7 +3,7 @@
  * 照抄 Pi tui/src/components/text.ts
  */
 
-import type { Component } from "../tui.js";
+import type { Component } from "../tui.ts";
 
 export class Text implements Component {
   private content: string;

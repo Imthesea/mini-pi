@@ -3,7 +3,7 @@
  * 照抄 Pi tui/src/components/spacer.ts
  */
 
-import type { Component } from "../tui.js";
+import type { Component } from "../tui.ts";
 
 export class Spacer implements Component {
   private height: number;

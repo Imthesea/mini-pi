@@ -3,7 +3,7 @@
  * 照抄 Pi tui/src/tui.ts 的核心架构，不抄 overlay 系统、Kitty 图片、终端颜色检测。
  */
 
-import type { Terminal } from "./terminal.js";
+import type { Terminal } from "./terminal.ts";
 
 // ═══════════════════════════════════════════
 // Component interface

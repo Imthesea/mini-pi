@@ -3,9 +3,9 @@
  * 照抄 Pi tui/src/components/input.ts，简化（无 kill-ring/undo/word-navigation/paste）。
  */
 
-import { parseKey } from "../keys.js";
-import type { Component } from "../tui.js";
-import { visibleWidth } from "../utils.js";
+import { parseKey } from "../keys.ts";
+import type { Component } from "../tui.ts";
+import { visibleWidth } from "../utils.ts";
 
 /**
  * Single-line text input with cursor.
