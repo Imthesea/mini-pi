@@ -246,42 +246,20 @@ export class TUI extends Container {
   }
 
   /**
-   * 执行一次渲染（差分算法）。
+   * 执行一次渲染。
    *
-   * 策略（照抄 Pi 简化版）：
-   * - 首帧或宽度变化 → 全量清屏重绘
-   * - 行数减少 → 全量清屏重绘
-   * - 行数相同 → 逐行差分对比，只重写变化行
-   * - 行数增加 → 光标移到末尾追加新行
+   * V1 简化：不做差分，每次都全量清屏重绘。
+   * 差分渲染需要精确的光标位置追踪，V1 的简化版做不到，
+   * 全量重绘对文本聊天应用性能完全足够。
    */
   private performRender(): void {
     if (this.stopped) return;
     this.lastRenderAt = Date.now();
 
     const width = this.terminal.columns;
+    const newLines = this.render(width);
 
-    const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
-
-    let newLines = this.render(width);
-
-    // 首帧或宽度变化 → 全量清屏重绘
-    if (this.previousLines.length === 0 || widthChanged) {
-      this.fullRender(newLines, true);
-      this.previousLines = newLines;
-      this.previousWidth = width;
-      return;
-    }
-
-    // 行数减少 → 全量清屏重绘（避免残留旧行）
-    if (newLines.length < this.previousLines.length) {
-      this.fullRender(newLines, true);
-      this.previousLines = newLines;
-      this.previousWidth = width;
-      return;
-    }
-
-    // 行数相同或增加 → 差分更新
-    this.differentialRender(newLines);
+    this.fullRender(newLines, true);
     this.previousLines = newLines;
     this.previousWidth = width;
   }
@@ -310,59 +288,6 @@ export class TUI extends Container {
   }
 
   /**
-   * 差分渲染：只更新与上一帧不同的行。
-   *
-   * 使用 ANSI 光标移动序列跳转到变化行，重写内容，然后光标归位。
-   * 这样避免了全屏清屏带来的闪烁，尤其适合聊天消息追加场景。
-   *
-   * 两种情况：
-   * - 行数相同 → 找出变化行，逐行替换
-   * - 行数增加 → 在末尾追加新行
-   *
-   * @param newLines - 当前帧的渲染结果
-   */
-  private differentialRender(newLines: string[]): void {
-    const prevLen = this.previousLines.length;
-    const newLen = newLines.length;
-
-    let buffer = "";
-
-    if (newLen === prevLen) {
-      // 行数相同：找出并更新变化的行
-      // \x1b[NB：向下 N 行，\x1b[NA：向上 N 行，\r：回到行首，\x1b[2K：清除当前行
-      let lastChanged = -1;
-      for (let i = 0; i < newLen; i++) {
-        if (newLines[i] !== this.previousLines[i]) {
-          if (lastChanged >= 0 && i > lastChanged + 1) {
-            // 不连续的变化 → 移动光标到目标行
-            buffer += `\x1b[${prevLen - lastChanged}B`;
-            buffer += `\x1b[${newLen - i}A`;
-          } else if (lastChanged < 0 && i > 0) {
-            // 首次变化且不在第一行 → 向下移动到目标行
-            buffer += `\x1b[${i}B`;
-          }
-          buffer += `\r\x1b[2K${newLines[i]}`;
-          lastChanged = i;
-        }
-      }
-      // 光标移回末尾
-      if (lastChanged >= 0 && lastChanged < newLen - 1) {
-        buffer += `\x1b[${newLen - 1 - lastChanged}B`;
-      }
-    } else if (newLen > prevLen) {
-      // 行数增加：移到旧内容末尾，追加新行
-      if (prevLen > 0) {
-        buffer += `\x1b[${prevLen}B\r`;
-      }
-      for (let i = prevLen; i < newLen; i++) {
-        buffer += `\r\n${newLines[i]}`;
-      }
-    }
-
-    this.terminal.write(buffer);
-  }
-
-  /**
    * 将键盘输入转发给当前焦点组件。
    *
    * 从 terminal.start() 的 onInput 回调中调用。
@@ -371,8 +296,10 @@ export class TUI extends Container {
    * @param data - 按键序列字符串
    */
   private handleInput(data: string): void {
+    // 照抄 Pi：转发输入给焦点组件后立即请求重绘
     if (this.focusedComponent?.handleInput) {
       this.focusedComponent.handleInput(data);
+      this.requestRender();
     }
   }
 }

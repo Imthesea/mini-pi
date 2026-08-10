@@ -6,7 +6,7 @@
  *
  * 照抄 Pi 的类结构和代码组织方式。
  * 不抄（V1 不做）：扩展系统、footer、快捷键、自动补全、主题、changelog、
- *   tool execution 组件、bash 组件、compaction UI、剪贴板、图片、slash 命令、session 选择器。
+ *   bash 组件、compaction UI、剪贴板、图片、slash 命令、session 选择器。
  */
 
 import type { ImageContent } from "@mimi/ai";
@@ -15,6 +15,7 @@ import { APP_NAME, VERSION } from "../../config.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import type { AgentSession, AgentSessionEvent } from "../../core/agent-session.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
+import { ToolExecutionComponent } from "./components/tool-execution.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 
 // ═══════════════════════════════════════════
@@ -61,6 +62,9 @@ export class InteractiveMode {
   // ── 流式消息跟踪（照抄 Pi）──
   private streamingComponent: AssistantMessageComponent | undefined = undefined;
   private streamingMessage: any | undefined = undefined; // AssistantMessage
+
+  // ── 工具执行跟踪：toolCallId -> 组件（照抄 Pi）──
+  private pendingTools = new Map<string, ToolExecutionComponent>();
 
   // ── Thinking block 可见性（照抄 Pi）──
   private hideThinkingBlock = false;
@@ -127,6 +131,29 @@ export class InteractiveMode {
       if (text.trim()) {
         void this.handleUserInput(text);
       }
+    };
+
+    // ── 按键回调（照抄 Pi setupKeyHandlers 对应部分，V1 简化）──
+    // ESC：流式回复中 → 中断（照抄 Pi onEscape）
+    this.inputComponent.onEscape = () => {
+      if (this.streamingComponent) {
+        this.session.abort?.();
+      }
+    };
+    // Ctrl+C：双击(<500ms)退出，单次清空输入（照抄 Pi handleCtrlC）
+    this.inputComponent.onCtrlC = () => {
+      const now = Date.now();
+      if (now - this.lastSigintTime < 500) {
+        this.stop();
+      } else {
+        this.inputComponent.setValue("");
+        this.lastSigintTime = now;
+        this.ui.requestRender();
+      }
+    };
+    // Ctrl+D：退出（照抄 Pi handleCtrlD）
+    this.inputComponent.onCtrlD = () => {
+      this.stop();
     };
 
     // 启动 TUI（接管终端）
@@ -226,23 +253,21 @@ export class InteractiveMode {
   // ═══════════════════════════════════════════
 
   /**
-   * 注册 SIGINT / SIGTERM 信号处理器。
-   * 照抄 Pi InteractiveMode.registerSignalHandlers()。
+   * 注册信号处理器。
+   *
+   * 照抄 Pi InteractiveMode.registerSignalHandlers()，V1 简化。
+   *
+   * 🔴 关键差异（V1 曾偏离 pi）：不监听 SIGINT —— raw mode 下 Ctrl+C 作为
+   * `\x03` 字节进入 stdin（由 Input.onCtrlC 处理），不会产生 SIGINT 信号，
+   * 原 V1 的 SIGINT 处理器永远不会触发，导致无法退出。
+   * 照抄 pi 只处理 SIGTERM（优雅关闭）。
    */
   private registerSignalHandlers(): void {
-    const onSigint = () => {
-      const now = Date.now();
-      if (now - this.lastSigintTime < 500) {
-        // 双击 Ctrl+C → 退出
-        this.shutdownRequested = true;
-      } else {
-        this.lastSigintTime = now;
-        // 单次 Ctrl+C → 中断当前操作
-        this.session.abort?.();
-      }
+    const onSigterm = () => {
+      this.stop();
     };
-    process.on("SIGINT", onSigint);
-    this.signalCleanupHandlers.push(() => process.off("SIGINT", onSigint));
+    process.on("SIGTERM", onSigterm);
+    this.signalCleanupHandlers.push(() => process.off("SIGTERM", onSigterm));
   }
 
   // ═══════════════════════════════════════════
@@ -256,50 +281,130 @@ export class InteractiveMode {
   private setupSessionSubscription(): void {
     this.unsubscribe = this.session.subscribe((event: AgentSessionEvent) => {
       switch (event.type) {
-        // ── 消息更新：流式文本/thinking（照抄 Pi）──
-        case "message_update": {
-          const msgEvent = event as any;
-          if (msgEvent.assistantMessageEvent) {
-            const ame = msgEvent.assistantMessageEvent;
-
-            switch (ame.type) {
-              case "start":
-              case "text_start":
-              case "thinking_start":
-                // 首次收到消息时创建 streamingComponent
-                if (!this.streamingComponent) {
-                  this.streamingComponent = new AssistantMessageComponent();
-                  this.chatContainer.addChild(this.streamingComponent);
-                }
-                break;
-
-              case "text_delta":
-              case "thinking_delta":
-              case "text_end":
-              case "thinking_end":
-                // 使用 partial 消息更新组件内容
-                if (this.streamingComponent && ame.partial) {
-                  this.streamingComponent.updateContent(ame.partial);
-                  this.ui.requestRender();
-                }
-                break;
-
-              case "toolcall_start":
-              case "toolcall_delta":
-              case "toolcall_end":
-                // V1：工具调用不渲染（后续添加 tool execution 组件）
-                break;
-
-              case "done":
-              case "error":
-                // 流结束
-                break;
-            }
+        // ── 消息开始（照抄 Pi）──
+        case "message_start": {
+          const msg = (event as any).message;
+          if (msg?.role === "assistant") {
+            // 照抄 Pi：创建 AssistantMessageComponent 并用完整 message 初始化
+            this.streamingComponent = new AssistantMessageComponent();
+            this.streamingMessage = msg;
+            this.chatContainer.addChild(this.streamingComponent);
+            this.streamingComponent.updateContent(msg);
+            this.ui.requestRender();
           }
           break;
         }
 
-        // ── Turn 结束：结束流式，保留消息（照抄 Pi）──
+        // ── 消息更新：用完整 message 更新组件（照抄 Pi，不用 assistantMessageEvent）──
+        case "message_update": {
+          const msg = (event as any).message;
+          if (this.streamingComponent && msg?.role === "assistant") {
+            this.streamingMessage = msg;
+            this.streamingComponent.updateContent(this.streamingMessage);
+
+            // 工具调用块 → 创建/更新工具执行组件（照抄 Pi）
+            for (const content of this.streamingMessage.content) {
+              if (content.type === "toolCall") {
+                if (!this.pendingTools.has(content.id)) {
+                  const component = new ToolExecutionComponent(
+                    content.name,
+                    content.id,
+                    content.arguments,
+                  );
+                  this.chatContainer.addChild(component);
+                  this.pendingTools.set(content.id, component);
+                } else {
+                  const component = this.pendingTools.get(content.id);
+                  if (component) {
+                    component.updateArgs(content.arguments);
+                  }
+                }
+              }
+            }
+            this.ui.requestRender();
+          }
+          break;
+        }
+
+        // ── 消息结束：最终完整内容渲染（照抄 Pi）──
+        // 🔴 V1 曾漏掉此分支：pi 在这里用 message_end 的最终消息做一次完整渲染。
+        // 若缺失，message_update 只携带流式 partial，最终消息永远不显示。
+        case "message_end": {
+          const msg = (event as any).message;
+          if (msg?.role === "assistant" && this.streamingComponent) {
+            this.streamingMessage = msg;
+            let errorMessage: string | undefined;
+            if (this.streamingMessage.stopReason === "aborted") {
+              // 🔴 V1 简化：无 retryAttempt，固定文案（pi 会区分重试次数）
+              errorMessage = "Operation aborted";
+              this.streamingMessage.errorMessage = errorMessage;
+            }
+            this.streamingComponent.updateContent(this.streamingMessage);
+
+            // 工具组件收尾（照抄 Pi）：
+            // - 中断/错误 → 所有 pending 工具标记错误并清空
+            // - 正常结束 → 参数定稿（工具结果已在 tool_execution_end 时更新）
+            if (this.streamingMessage.stopReason === "aborted" || this.streamingMessage.stopReason === "error") {
+              if (!errorMessage) {
+                errorMessage = this.streamingMessage.errorMessage || "Error";
+              }
+              for (const [, component] of this.pendingTools.entries()) {
+                component.updateResult({
+                  content: [{ type: "text", text: errorMessage }],
+                  isError: true,
+                });
+              }
+              this.pendingTools.clear();
+            } else {
+              // Args are now complete（照抄 Pi）
+              for (const [, component] of this.pendingTools.entries()) {
+                component.setArgsComplete();
+              }
+            }
+
+            this.streamingComponent = undefined;
+            this.streamingMessage = undefined;
+          }
+          this.ui.requestRender();
+          break;
+        }
+
+        // ── 工具执行开始：标记组件为运行中（照抄 Pi）──
+        case "tool_execution_start": {
+          let component = this.pendingTools.get(event.toolCallId);
+          if (!component) {
+            // 组件可能尚未由 message_update 创建（工具结果先到），照抄 Pi 兜底创建
+            component = new ToolExecutionComponent(event.toolName, event.toolCallId, event.args);
+            this.chatContainer.addChild(component);
+            this.pendingTools.set(event.toolCallId, component);
+          }
+          component.markExecutionStarted();
+          this.ui.requestRender();
+          break;
+        }
+
+        // ── 工具执行更新：部分结果（照抄 Pi）──
+        case "tool_execution_update": {
+          const component = this.pendingTools.get(event.toolCallId);
+          if (component) {
+            component.updateResult({ ...event.partialResult, isError: false }, true);
+            this.ui.requestRender();
+          }
+          break;
+        }
+
+        // ── 工具执行结束：最终结果（照抄 Pi）──
+        case "tool_execution_end": {
+          const component = this.pendingTools.get(event.toolCallId);
+          if (component) {
+            component.updateResult({ ...event.result, isError: event.isError });
+            this.pendingTools.delete(event.toolCallId);
+            this.ui.requestRender();
+          }
+          break;
+        }
+
+        // ── Turn 结束：结束流式（照抄 Pi）──
         case "turn_end": {
           this.streamingComponent = undefined;
           this.streamingMessage = undefined;
@@ -326,10 +431,14 @@ export class InteractiveMode {
     // 创建用户消息组件
     const userMsg = new UserMessageComponent(text);
     this.chatContainer.addChild(userMsg);
-    this.ui.requestRender();
 
     // 清空输入框
     this.inputComponent.setValue("");
+
+    // 显示等待状态
+    const workingMsg = new Text("...", 0, 0);
+    this.chatContainer.addChild(workingMsg);
+    this.ui.requestRender();
 
     // 发送给 Agent
     try {
@@ -337,6 +446,10 @@ export class InteractiveMode {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
       this.showError(errorMessage);
+    } finally {
+      // 移除等待状态
+      this.chatContainer.removeChild(workingMsg);
+      this.ui.requestRender();
     }
   }
 

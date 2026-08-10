@@ -193,9 +193,11 @@ interface StreamState {
   }>;
   finishReason: string | null;
   usageData: { input: number; output: number };
-  /** 推送给所有事件的 partial 模板（pi 协议要求:partial 字段携带当前消息骨架;
-   *  provider 用 model.provider —— B1 修复:之前硬编码 "openai" 会让 DeepSeek 流的 partial 与 message 不一致） */
-  initialPartial: AssistantMessage;
+  /** 累积的 assistant message 骨架（照抄 pi 的 `output` 对象）：
+   *  content 数组随流式增长，所有事件的 partial 字段都引用它，
+   *  因此 message_update 能携带"到目前为止"的完整内容。
+   *  provider 用 model.provider —— B1 修复:之前硬编码 "openai" 会让 DeepSeek 流的 partial 与 message 不一致 */
+  partial: AssistantMessage;
 }
 
 /** 创建流式初始状态。抽离这一函数便于单元测试 + 让 openAICompatibleStream 内部状态变量归一。 */
@@ -210,7 +212,7 @@ function createStreamState(model: Model<"openai-completions">): StreamState {
     currentToolCalls: new Map(),
     finishReason: null,
     usageData: { input: 0, output: 0 },
-    initialPartial: {
+    partial: {
       role: "assistant",
       content: [],
       api: "openai-completions",
@@ -221,6 +223,34 @@ function createStreamState(model: Model<"openai-completions">): StreamState {
       timestamp: Date.now(),
     },
   };
+}
+
+/** 把当前累积的 text/thinking/toolCall 同步到 partial.content 的指定 block index。
+ *  照抄 pi：partial 的 content 数组与最终 buildAssistantMessage 顺序一致（text → thinking → tools）。 */
+function syncPartialContent(state: StreamState): void {
+  const content: AssistantMessage["content"] = [];
+  if (state.textContent) {
+    content.push({ type: "text", text: state.textContent });
+  }
+  if (state.thinkingContent) {
+    content.push({ type: "thinking", thinking: state.thinkingContent });
+  }
+  for (const [, tc] of state.currentToolCalls) {
+    let parsedArgs: Record<string, any> = {};
+    try {
+      parsedArgs = JSON.parse(tc.arguments || "{}");
+    } catch {
+      // 流式中的 arguments 可能是截断的 JSON，解析失败就保留空对象
+    }
+    content.push({
+      type: "toolCall",
+      id: tc.id,
+      name: tc.name,
+      arguments: parsedArgs,
+      rawArguments: tc.arguments,
+    });
+  }
+  state.partial.content = content;
 }
 
 /** 处理单个流式 chunk:无外部副作用（仅修改 state 和 push 到 stream）。
@@ -245,11 +275,12 @@ function processChunk(
       state.textBlockIndex = state.nextBlockIndex++;
     }
     state.textContent += delta.content;
+    syncPartialContent(state);
     stream.push({
       type: "text_delta",
       contentIndex: state.textBlockIndex,
       delta: delta.content,
-      partial: { ...state.initialPartial },
+      partial: { ...state.partial },
     });
   }
 
@@ -259,11 +290,12 @@ function processChunk(
       state.thinkingBlockIndex = state.nextBlockIndex++;
     }
     state.thinkingContent += delta.reasoning_content;
+    syncPartialContent(state);
     stream.push({
       type: "thinking_delta",
       contentIndex: state.thinkingBlockIndex,
       delta: delta.reasoning_content,
-      partial: { ...state.initialPartial },
+      partial: { ...state.partial },
     });
   }
 
@@ -281,10 +313,11 @@ function processChunk(
           arguments: "",
           contentIndex,
         });
+        syncPartialContent(state);
         stream.push({
           type: "toolcall_start",
           contentIndex,
-          partial: { ...state.initialPartial },
+          partial: { ...state.partial },
         });
       }
 
@@ -295,11 +328,12 @@ function processChunk(
       }
       if (tcDelta.function?.arguments) {
         current.arguments += tcDelta.function.arguments;
+        syncPartialContent(state);
         stream.push({
           type: "toolcall_delta",
           contentIndex,
           delta: tcDelta.function.arguments,
-          partial: { ...state.initialPartial },
+          partial: { ...state.partial },
         });
       }
     }
@@ -308,6 +342,7 @@ function processChunk(
   // 完成原因
   if (chunk.choices?.[0]?.finish_reason) {
     state.finishReason = chunk.choices[0].finish_reason;
+    state.partial.stopReason = mapOpenAIFinishReason(state.finishReason);
   }
 }
 
@@ -320,21 +355,23 @@ function finalizeStream(
 ): ToolCall[] {
   // 结束文本块
   if (state.textContent) {
+    syncPartialContent(state);
     stream.push({
       type: "text_end",
       contentIndex: state.textBlockIndex,
       content: state.textContent,
-      partial: { ...state.initialPartial },
+      partial: { ...state.partial },
     });
   }
 
   // 结束思考块
   if (state.thinkingContent) {
+    syncPartialContent(state);
     stream.push({
       type: "thinking_end",
       contentIndex: state.thinkingBlockIndex,
       content: state.thinkingContent,
-      partial: { ...state.initialPartial },
+      partial: { ...state.partial },
     });
   }
 
@@ -358,11 +395,12 @@ function finalizeStream(
       ...(parseError ? { parseError } : {}),
     };
     completedToolCalls.push(toolCall);
+    syncPartialContent(state);
     stream.push({
       type: "toolcall_end",
       contentIndex: tc.contentIndex,
       toolCall,
-      partial: { ...state.initialPartial },
+      partial: { ...state.partial },
     });
   }
 
@@ -446,7 +484,7 @@ export function openAICompatibleStream(
 
       // 创建流式状态（在 SDK 调用成功后,避免无效分配）
       const state = createStreamState(model);
-      stream.push({ type: "start", partial: { ...state.initialPartial } });
+      stream.push({ type: "start", partial: { ...state.partial } });
 
       for await (const chunk of sdkStream) {
         processChunk(chunk, state, stream);
