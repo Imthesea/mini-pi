@@ -76,7 +76,7 @@ describe("Agent", () => {
     });
 
     const events: any[] = [];
-    agent.subscribe((event) => events.push(event));
+    agent.subscribe((event) => { events.push(event); });
 
     await agent.prompt("你好");
 
