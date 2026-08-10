@@ -82,8 +82,8 @@ export async function createAgentSessionServices(
   const agentDir = options.agentDir ?? getAgentDir();
   const diagnostics: AgentSessionRuntimeDiagnostic[] = [];
 
-  // V1: ModelRuntime 由外部注入或在 SDK 中创建
-  const modelRuntime = options.modelRuntime ?? new ModelRuntime(null!);
+  // V1: ModelRuntime 由外部注入或创建空实例
+  const modelRuntime = options.modelRuntime ?? new ModelRuntime(new ModelRegistry());
   // SessionManager 由调用方传入（在 createAgentSessionFromServices 阶段绑定）
 
   return {
@@ -105,19 +105,21 @@ export function createAgentSessionFromServices(
 ): any {
   const { services, sessionManager, model, thinkingLevel } = options;
 
-  // 确保 modelRuntime 已初始化
-  if (!services.modelRuntime || !(services.modelRuntime as any).registry) {
-    const registry = new ModelRegistry();
-    registry.register(deepseekProvider());
-    registry.register(openaiProvider());
-    registry.register(anthropicProvider());
-    (services as any).modelRuntime = new ModelRuntime(registry);
+  // 确保 modelRuntime 的 registry 中有 provider
+  if (!services.modelRuntime.getModels().length) {
+    const runtime = services.modelRuntime;
+    runtime.set(deepseekProvider());
+    runtime.set(openaiProvider());
+    runtime.set(anthropicProvider());
   }
 
   // 解析模型
   const resolvedModel = typeof model === "string"
     ? resolveModel(model, services.modelRuntime, DEFAULT_MODEL)
     : (model ?? resolveModel(undefined, services.modelRuntime, DEFAULT_MODEL));
+
+  // 回填 sessionManager 到 services（createAgentSessionServices 里是 null 占位）
+  services.sessionManager = sessionManager;
 
   // 创建 Agent
   const agent = new Agent({
@@ -128,6 +130,10 @@ export function createAgentSessionFromServices(
       tools: [],
     },
     sessionId: sessionManager.getSessionId(),
+    // V1: streamFn 从 modelRuntime 获取
+    streamFn: async (model: any, context: any, opts: any) => {
+      return services.modelRuntime.stream(model, context, opts);
+    },
   });
 
   // 创建 AgentSession
