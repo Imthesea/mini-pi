@@ -1,6 +1,6 @@
 # WebUI 前端系统 实现计划
 
-> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
+> **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [x]` = 已完成，`- [ ]` = 未完成）语法来跟踪进度。
 
 **目标：** 为 pi 项目新增 Web 前端系统（React + Vite），通过 `@mimi/server` 将 agent 事件桥接到浏览器。
 
@@ -9,6 +9,21 @@
 **技术栈：** TypeScript, Node.js http + ws, React 18, Vite 5, Tailwind CSS 3, shadcn/ui, react-markdown
 
 **参考设计文档：** `docs/superpowers/specs/2026-08-11-webui-design.md`
+
+---
+
+## 进度总览
+
+| Phase | 状态 | 说明 |
+|-------|------|------|
+| Phase 1 | ✅ 完成 | 项目脚手架（server + webui + coding-agent CLI） |
+| Phase 2 | ✅ 完成 | HTTP 核心（auth + 静态文件 + 路由） |
+| Phase 3 | ✅ 完成 | WebSocket + AgentSession 桥接 |
+| Phase 4 | ✅ 完成 | REST API（sessions CRUD + setup） |
+| Phase 5 | ⏳ 待开始 | 前端基础框架 |
+| Phase 6 | ⏳ 待开始 | 聊天组件 |
+| Phase 7 | ⏳ 待开始 | WebSocket 集成 |
+| Phase 8 | ⏳ 待开始 | 构建集成 + 端到端验证 |
 
 ---
 
@@ -22,18 +37,21 @@ packages/server/
     ├── app.ts                # HTTP + WS 应用组装
     ├── ws-server.ts          # WebSocket 连接管理
     ├── agent-bridge.ts       # AgentSession 订阅 → WS 转发
-    ├── auth.ts               # JWT 签发/验证
+    ├── auth.ts               # HMAC-SHA256 token 签发/验证
     ├── static-handler.ts     # 托管 webui/ 构建产物
+    ├── __tests__/
+    │   ├── auth.test.ts      # 5 tests
+    │   └── ws-server.test.ts # 2 tests
     └── routes/
         ├── auth.ts           # POST /api/auth
-        ├── sessions.ts       # GET/POST/DELETE /api/sessions/*
+        ├── sessions.ts       # POST/GET/DELETE /api/sessions, GET /api/sessions/:id/messages
         └── setup.ts          # GET /api/setup/status, POST /api/setup/apikey
 
 packages/webui/
 ├── package.json, tsconfig.json, vite.config.ts
-├── tailwind.config.js, postcss.config.js, index.html
+├── tailwind.config.ts, postcss.config.js, index.html
 └── src/
-    ├── main.tsx, App.tsx, globals.css
+    ├── main.tsx, App.tsx, globals.css, test-setup.ts
     ├── components/
     │   ├── chat/    (ChatView, MessageList, MessageBubble, Composer, ToolCard)
     │   ├── sidebar/ (Sidebar, SessionList)
@@ -44,9 +62,9 @@ packages/webui/
     └── lib/      (client.ts, api.ts, types.ts)
 
 packages/coding-agent/src/
-├── cli/args.ts           # 新增 --serve / --port 参数
-├── main.ts               # 新增 serve 模式分支
-└── server-entry.ts       # 新增：server 启动入口
+├── cli/args.ts           # 新增 --serve / --port 参数 + 帮助文本
+├── main.ts               # 新增 serve 模式分支（构建 services + 调用 startServe）
+└── server-entry.ts       # 新增：ServeOptions 类型定义 + startServe() 入口
 ```
 
 ---
@@ -61,10 +79,10 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 创建 `packages/server/package.json`，name `@mimi/server`，type `module`，依赖 `@mimi/coding-agent: workspace:*` 和 `ws: ^8.18.0`，devDependencies 含 `@types/node`、`@types/ws`、`typescript`、`vitest`
-- [ ] 创建 `packages/server/tsconfig.json`，extends `../../tsconfig.base.json`，outDir `./dist`，rootDir `./src`，references `../coding-agent`
-- [ ] 运行 `pnpm install` 安装依赖
-- [ ] 提交：`git add packages/server/ && git commit -m "feat: scaffold @mimi/server package"`
+- [x] 创建 `packages/server/package.json`，name `@mimi/server`，type `module`，依赖 `@mimi/coding-agent: workspace:*` 和 `ws: ^8.18.0`，devDependencies 含 `@types/node`、`@types/ws`、`typescript`、`vitest`
+- [x] 创建 `packages/server/tsconfig.json`，extends `../../tsconfig.base.json`，outDir `./dist`，rootDir `./src`，references `../coding-agent`
+- [x] 运行 `pnpm install` 安装依赖
+- [x] 提交：`git add packages/server/ && git commit -m "feat: scaffold @mimi/server package"`
 
 ---
 
@@ -80,14 +98,16 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 创建 package.json，含 react 18、react-dom、react-markdown、remark-gfm、clsx、tailwind-merge、class-variance-authority。devDeps 含 vite、@vitejs/plugin-react、tailwindcss、postcss、autoprefixer、vitest、@testing-library/react、jsdom、lucide-react
-- [ ] 创建 tsconfig.json，target ES2022，jsx react-jsx，paths `@/*` → `./src/*`，noEmit true
-- [ ] 创建 vite.config.ts，plugins [react()]，alias `@` → `./src`，build outDir `../server/static`，server proxy `/api` 和 `/ws` 到 `127.0.0.1:32123`
-- [ ] 创建 tailwind.config.js（content 含 `./index.html` 和 `./src/**/*.{js,ts,jsx,tsx}`）、postcss.config.js（tailwindcss + autoprefixer）
-- [ ] 创建 index.html（`<div id="root">` + module script `main.tsx`）
-- [ ] 创建占位 `src/main.tsx`（渲染 "mimi WebUI"）和 `src/globals.css`（tailwind directives + CSS 变量 `--background`/`--foreground`/`--border`）
-- [ ] 运行 `pnpm install && pnpm --filter @mimi/webui dev`，验证 Vite 启动成功
-- [ ] 提交
+- [x] 创建 package.json，含 react 18、react-dom、react-markdown、remark-gfm、clsx、tailwind-merge、class-variance-authority。devDeps 含 vite、@vitejs/plugin-react、tailwindcss、postcss、autoprefixer、vitest、@testing-library/react、jsdom、lucide-react
+- [x] 创建 tsconfig.json，target ES2022，jsx react-jsx，paths `@/*` → `./src/*`，noEmit true
+- [x] 创建 vite.config.ts，plugins [react()]，alias `@` → `./src`，build outDir `../server/static`，server proxy `/api` 和 `/ws` 到 `127.0.0.1:32123`
+- [x] 创建 tailwind.config.ts（content 含 `./index.html` 和 `./src/**/*.{js,ts,jsx,tsx}`）、postcss.config.js（tailwindcss + autoprefixer）
+- [x] 创建 index.html（`<div id="root">` + module script `main.tsx`）
+- [x] 创建占位 `src/main.tsx`（渲染 "mimi WebUI"）、`src/globals.css`（tailwind directives + CSS 变量）和 `src/test-setup.ts`（jest-dom import）
+- [x] 运行 `pnpm install && pnpm --filter @mimi/webui build`，验证 Vite 构建成功
+- [x] 提交
+
+> **偏差说明：** `postcss.config.js` 必须用 .js（PostCSS 不支持 .ts）。webui 包额外新增 `src/test-setup.ts`（jest-dom）。`tailwind.config.js` 最终用 `.ts`。
 
 ---
 
