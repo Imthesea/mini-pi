@@ -22,7 +22,7 @@
 | Phase 4 | ✅ 完成 | REST API（sessions CRUD + setup） |
 | Phase 5 | ✅ 完成 | 前端基础框架（UI 组件 + App Shell + 路由） |
 | Phase 6 | ✅ 完成 | 聊天组件（MarkdownRenderer + MessageBubble + Composer + ChatView） |
-| Phase 7 | ⏳ 待开始 | WebSocket 集成 |
+| Phase 7 | ✅ 完成 | WebSocket 集成（api/client/useWebSocket + useAgentStream + ChatView 接入） |
 | Phase 8 | ⏳ 待开始 | 构建集成 + 端到端验证 |
 
 ---
@@ -379,10 +379,10 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] `api.ts`：管理 `token` 变量。`authenticate()` → POST /api/auth → 保存 token。`request(path, options)` 封装 fetch 并注入 Authorization header
-- [ ] `client.ts`：`createWsClient()` 返回 `{ connect(url), send(msg), close(), onEvent(handler) }`。自动重连（2s 间隔），onEvent 管理 handler Set
-- [ ] `useWebSocket({ sessionId })`：useEffect 中先 `authenticate()`，然后构造 WS URL（`ws://host/ws?token=...&session=...`）并 connect。cleanup 时 close。返回 `{ send, onEvent }`
-- [ ] 编译验证
+- [x] `api.ts`：管理 `token` 变量。`authenticate()` → POST /api/auth → 保存 token。`request(path, options)` 封装 fetch 并注入 Authorization header
+- [x] `client.ts`：`createWsClient()` 返回 `{ connect(url), send(msg), close(), onEvent(handler) }`。自动重连（2s 间隔），onEvent 管理 handler Set
+- [x] `useWebSocket({ sessionId })`：useEffect 中先 `authenticate()`，然后构造 WS URL（`ws://host/ws?session=...`）并 connect。cleanup 时 close。返回 `{ send, onEvent }`
+- [x] 编译验证
 
 ---
 
@@ -393,7 +393,7 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 实现 `useAgentStream({ sessionId })`：
+- [x] 实现 `useAgentStream({ sessionId })`：
   - 用 `useWebSocket` 建立连接
   - useEffect 加载历史消息：`fetch(/api/sessions/:id/messages?limit=50)` → setMessages
   - `onEvent` 监听 WS 事件：
@@ -402,12 +402,13 @@ packages/coding-agent/src/
     - `message_end` → 标记消息完成
     - `tool_execution_start` → 添加 ToolCallState（status: running）
     - `tool_execution_end` → 更新 ToolCallState（status: done/error）
-    - `agent_settled` → setIsRunning(false)
+    - `agent_end` → 用 `agent_end` 代替计划中的 `agent_settled`（实际事件类型），`!willRetry` 时 setIsRunning(false)
   - `sendMessage(content)` → ws.send({ type: "message", content })
   - `stopAgent()` → ws.send({ type: "stop" })
   - 返回 `{ messages, activeTools, isRunning, sendMessage, stopAgent, loadMore }`
-- [ ] 注意：rAF 批处理实现：维护 `pendingUpdate` ref，`message_update` 到来时更新 ref，若未调度则 `requestAnimationFrame(() => { apply pending; 标记已调度=false })`
-- [ ] 编译验证
+- [x] 编译验证
+
+> **偏差说明：** 计划中使用 `agent_settled` 事件，但实际 AgentSessionEvent 中该事件名为 `agent_end`（含 `willRetry` 字段）。使用 `agent_end` + `!willRetry` 判断 agent 运行完成。
 
 ---
 
@@ -418,12 +419,12 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 将 ChatView 中的状态管理替换为 `useAgentStream({ sessionId })` 的返回值
-- [ ] `handleSend` 调用 `sendMessage(content)`
-- [ ] `handleStop` 调用 `stopAgent()`
-- [ ] `MessageList` 接收 `messages` 和 `activeTools`
-- [ ] `Composer` 接收 `isRunning`
-- [ ] 编译验证：`pnpm --filter @mimi/webui build` 通过
+- [x] 将 ChatView 中的状态管理替换为 `useAgentStream({ sessionId })` 的返回值
+- [x] `handleSend` 调用 `sendMessage(content)`
+- [x] `handleStop` 调用 `stopAgent()`
+- [x] `MessageList` 接收 `messages` 和 `activeTools`
+- [x] `Composer` 接收 `isRunning`
+- [x] 编译验证：`pnpm --filter @mimi/webui build` 通过
 
 ---
 
