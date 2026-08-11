@@ -20,7 +20,7 @@
 | Phase 2 | ✅ 完成 | HTTP 核心（auth + 静态文件 + 路由） |
 | Phase 3 | ✅ 完成 | WebSocket + AgentSession 桥接 |
 | Phase 4 | ✅ 完成 | REST API（sessions CRUD + setup） |
-| Phase 5 | ⏳ 待开始 | 前端基础框架 |
+| Phase 5 | ✅ 完成 | 前端基础框架（UI 组件 + App Shell + 路由） |
 | Phase 6 | ⏳ 待开始 | 聊天组件 |
 | Phase 7 | ⏳ 待开始 | WebSocket 集成 |
 | Phase 8 | ⏳ 待开始 | 构建集成 + 端到端验证 |
@@ -289,12 +289,12 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] `utils.ts`：导出 `cn()` 函数（clsx + tailwind-merge 合并类名）
-- [ ] `button.tsx`：`<Button>` 组件，支持 `variant`（default/ghost/outline）和 `size`（sm/default/lg），使用 `React.forwardRef`
-- [ ] `input.tsx`：`<Input>` 组件，标准 input 样式，`React.forwardRef`
-- [ ] `textarea.tsx`：`<Textarea>` 组件，`React.forwardRef`
-- [ ] `separator.tsx`：`<Separator>` 组件，支持 `orientation`
-- [ ] 编译验证
+- [x] `utils.ts`：导出 `cn()` 函数（clsx + tailwind-merge 合并类名）
+- [x] `button.tsx`：`<Button>` 组件，支持 `variant`（default/ghost/outline）和 `size`（sm/default/lg），使用 `React.forwardRef`
+- [x] `input.tsx`：`<Input>` 组件，标准 input 样式，`React.forwardRef`
+- [x] `textarea.tsx`：`<Textarea>` 组件，`React.forwardRef`
+- [x] `separator.tsx`：`<Separator>` 组件，支持 `orientation`
+- [x] 编译验证
 
 ---
 
@@ -311,16 +311,16 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 更新 `globals.css`：补充 `--muted`、`--muted-foreground` CSS 变量，自定义滚动条样式
-- [ ] 创建 `types.ts`：定义 `ChatMessage`（id, role, content, thinkingContent?）、`ToolCallState`（toolCallId, toolName, status, args?）
-- [ ] 创建 `SetupView`：居中卡片布局，包含 MIMI Logo 文字、API Key 输入框、"开始使用"按钮。调用 `POST /api/setup/apikey` 后 `window.location.reload()`
-- [ ] 创建 `Sidebar` + `SessionList`：Sidebar 为固定宽度侧边栏容器（w-64），SessionList 渲染会话列表（id + 删除按钮），底部"新建会话"按钮。Props：`sessions`、`activeSessionId`、`onNewSession`、`onSelectSession`、`onDeleteSession`
-- [ ] 实现 `App.tsx` 状态机：
+- [x] 更新 `globals.css`：补充 `--muted`、`--muted-foreground` CSS 变量，自定义滚动条样式
+- [x] 创建 `types.ts`：定义 `ChatMessage`（id, role, content, thinkingContent?）、`ToolCallState`（toolCallId, toolName, status, args?）
+- [x] 创建 `SetupView`：居中卡片布局，包含 MIMI Logo 文字、API Key 输入框、"开始使用"按钮。调用 `POST /api/setup/apikey` 后 `window.location.reload()`
+- [x] 创建 `Sidebar` + `SessionList`：Sidebar 为固定宽度侧边栏容器（w-64），SessionList 渲染会话列表（id + 删除按钮），底部"新建会话"按钮。Props：`sessions`、`activeSessionId`、`onNewSession`、`onSelectSession`、`onDeleteSession`
+- [x] 实现 `App.tsx` 状态机：
   - 启动时 `fetch("/api/setup/status")` → 无 key → `setup` 状态 → 渲染 `SetupView`
   - 有 key → `chat` 状态 → 渲染 `Sidebar` + `ChatView`（占位空 div）
   - 使用 `location.hash` 管理当前激活会话（`#/chat/:id`），监听 `hashchange`
-- [ ] 更新 `main.tsx`：`React.StrictMode` + `App`
-- [ ] 编译验证：`pnpm --filter @mimi/webui build`（ChatView 占位即可）
+- [x] 更新 `main.tsx`：`React.StrictMode` + `App`
+- [x] 编译验证：`pnpm --filter @mimi/webui build` 通过
 
 ---
 
