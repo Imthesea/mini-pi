@@ -21,7 +21,7 @@
 | Phase 3 | ✅ 完成 | WebSocket + AgentSession 桥接 |
 | Phase 4 | ✅ 完成 | REST API（sessions CRUD + setup） |
 | Phase 5 | ✅ 完成 | 前端基础框架（UI 组件 + App Shell + 路由） |
-| Phase 6 | ⏳ 待开始 | 聊天组件 |
+| Phase 6 | ✅ 完成 | 聊天组件（MarkdownRenderer + MessageBubble + Composer + ChatView） |
 | Phase 7 | ⏳ 待开始 | WebSocket 集成 |
 | Phase 8 | ⏳ 待开始 | 构建集成 + 端到端验证 |
 
@@ -333,8 +333,8 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 实现 `MarkdownRenderer`：使用 `react-markdown` + `remark-gfm`。自定义 `pre`（bg-muted rounded p-3 overflow-x-auto）和 `code`（inline: bg-muted px-1 rounded）组件
-- [ ] 编译验证
+- [x] 实现 `MarkdownRenderer`：使用 `react-markdown` + `remark-gfm`。自定义 `pre`（bg-muted rounded p-3 overflow-x-auto）和 `code`（inline: bg-muted px-1 rounded）组件
+- [x] 编译验证
 
 ---
 
@@ -346,9 +346,9 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 实现 `MessageBubble`：user 消息右对齐（bg-foreground text-background），assistant 消息左对齐（bg-muted）。thinking block 默认折叠，点击展开。assistant 内容用 MarkdownRenderer，user 内容纯文本
-- [ ] 实现 `ToolCard`：显示状态图标（running ⏳ / done ✅ / error ❌）+ 工具名（font-mono），不同状态不同颜色
-- [ ] 编译验证
+- [x] 实现 `MessageBubble`：user 消息右对齐（bg-foreground text-background），assistant 消息左对齐（bg-muted）。thinking block 默认折叠，点击展开。assistant 内容用 MarkdownRenderer，user 内容纯文本
+- [x] 实现 `ToolCard`：显示状态图标（running ⏳ / done ✅ / error ❌）+ 工具名（font-mono），不同状态不同颜色
+- [x] 编译验证
 
 ---
 
@@ -361,10 +361,10 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] `Composer`：`<Textarea>` + `<Button>`（Send/Stop 图标用 lucide-react）。Enter 发送，Shift+Enter 换行。isRunning 时显示 Stop 按钮并禁用输入
-- [ ] `MessageList`：渲染 MessageBubble 列表 + 活跃 ToolCard。底部 ref 自动 scrollIntoView
-- [ ] `ChatView`：组合 MessageList + Composer，管理 messages/activeTools/isRunning 状态。handleSend 创建 userMsg 并追加到 messages（WebSocket 集成在 Phase 7）
-- [ ] 编译验证：`pnpm --filter @mimi/webui build` 通过
+- [x] `Composer`：`<Textarea>` + `<Button>`（Send/Stop 图标用 lucide-react）。Enter 发送，Shift+Enter 换行。isRunning 时显示 Stop 按钮并禁用输入
+- [x] `MessageList`：渲染 MessageBubble 列表 + 活跃 ToolCard。底部 ref 自动 scrollIntoView
+- [x] `ChatView`：组合 MessageList + Composer，管理 messages/activeTools/isRunning 状态。handleSend 创建 userMsg 并追加到 messages（WebSocket 集成在 Phase 7）
+- [x] 编译验证：`pnpm --filter @mimi/webui build` 通过
 
 ---
 

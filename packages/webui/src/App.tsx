@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { SetupView } from "./components/setup/SetupView";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { SessionList } from "./components/sidebar/SessionList";
+import { ChatView } from "./components/chat/ChatView";
 import type { SessionInfo } from "./lib/types";
 
 type AppState = "loading" | "setup" | "chat";
@@ -106,9 +107,7 @@ export default function App() {
 
       <main className="flex flex-1 flex-col">
         {activeSessionId ? (
-          <div className="flex h-full items-center justify-center text-muted-foreground">
-            会话 {activeSessionId.slice(0, 8)} — ChatView 待实现 (Phase 6)
-          </div>
+          <ChatView sessionId={activeSessionId} />
         ) : (
           <div className="flex h-full items-center justify-center text-muted-foreground">
             选择或创建一个会话开始
