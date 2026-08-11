@@ -7,6 +7,8 @@ import type { createWsServer } from "./ws-server.js";
 import type { createAgentBridge } from "./agent-bridge.js";
 import type { SessionManager } from "@mimi/coding-agent";
 import { handleAuth } from "./routes/auth.js";
+import { handleSessions } from "./routes/sessions.js";
+import { handleSetup } from "./routes/setup.js";
 import { handleStatic } from "./static-handler.js";
 
 export interface AppDeps {
@@ -40,6 +42,26 @@ export function createApp(deps: AppDeps) {
     // API 路由
     if (url === "/api/auth" && req.method === "POST") {
       handleAuth(req, res, () => deps.auth.issueToken());
+      return;
+    }
+
+    if (url.startsWith("/api/sessions")) {
+      handleSessions(req, res, url, deps.cwd).catch(() => {
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Internal Server Error" }));
+        }
+      });
+      return;
+    }
+
+    if (url.startsWith("/api/setup")) {
+      handleSetup(req, res, url, deps.cwd).catch(() => {
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Internal Server Error" }));
+        }
+      });
       return;
     }
 
