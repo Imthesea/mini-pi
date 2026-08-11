@@ -121,19 +121,24 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 在 `args.ts` 的 `Args` 接口中新增 `serve?: boolean` 和 `port?: number`。在 `parseArgs()` switch 中新增 `--serve` 和 `--port <num>` case
-- [ ] 在 `args.ts` 的 `printHelp()` 中添加 `--serve` 和 `--port` 帮助文本
-- [ ] 创建 `packages/coding-agent/src/server-entry.ts`：导出 `ServeOptions` 接口（`{ port, cwd, settingsManager, sessionManager }`）和 `startServe()` 函数（动态 `import("@mimi/server")` 并调用 `startServer`）
-- [ ] 在 `main.ts` 的 `main()` 中，检查 `parsed.serve` → 调用 `startServe()` 并 return
-- [ ] 在 `packages/coding-agent/package.json` 中添加 `"@mimi/server": "workspace:*"` 依赖
-- [ ] 运行 `pnpm install`；验证编译：`pnpm --filter @mimi/coding-agent build`
-- [ ] 提交
+- [x] 在 `args.ts` 的 `Args` 接口中新增 `serve?: boolean` 和 `port?: number`。在 `parseArgs()` switch 中新增 `--serve` 和 `--port <num>` case
+- [x] 在 `args.ts` 的 `printHelp()` 中添加 `--serve` 和 `--port` 帮助文本
+- [x] 创建 `packages/coding-agent/src/server-entry.ts`：导出 `ServeOptions` 接口（`{ port, cwd, settingsManager, sessionManager }`）和 `startServe()` 函数（动态 `import("@mimi/server")` 并调用 `startServer`）
+- [x] 在 `main.ts` 的 `main()` 中，检查 `parsed.serve` → 调用 `startServe()` 并 return
+- [x] 在 `packages/coding-agent/package.json` 中添加 `"@mimi/server": "workspace:*"` 依赖
+- [x] 运行 `pnpm install`；验证编译：`pnpm --filter @mimi/coding-agent build`
+- [x] 提交
+
+> **偏差说明：**
+> - `ServeOptions` 接口实际参数后续在 Phase 3 扩展了 `services: AgentSessionServices` 字段（见 Phase 3 偏差说明）
+> - `coding-agent/package.json` 额外添加了 `"main": "./dist/index.js"`，因为 Node.js 解析 workspace 包需要该字段
+> - `coding-agent/tsconfig.json` 中去掉了 `@mimi/server` 的 paths 映射，改用变量 `const serverModuleId = "@mimi/server"` 绕过 TS 静态模块解析来解决循环 workspace 依赖问题
 
 ---
 
 ### Phase 2：@mimi/server HTTP 核心
 
-#### 任务 2.1：JWT 签发与验证
+#### 任务 2.1：HMAC-SHA256 Token 签发与验证
 
 **文件：**
 - 创建：`packages/server/src/auth.ts`
@@ -141,10 +146,12 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 实现 `createAuth()`：返回 `issueToken()`（签发 5 分钟有效期的 HMAC-SHA256 签名 token）、`validateToken()`、`shouldRefresh()`。用 `crypto.randomUUID` 做 secret，`crypto.createHmac("sha256")` 签名，`timingSafeEqual` 防时序攻击。token 格式为 `base64url(JSON).base64url(sig)`
-- [ ] 编写 vitest 测试：验证签发/验证流程，验证无效 token 被拒绝
-- [ ] 运行 `pnpm --filter @mimi/server test`，全部 PASS
-- [ ] 提交
+- [x] 实现 `createAuth()`：返回 `issueToken()`（签发 5 分钟有效期的 HMAC-SHA256 签名 token）、`validateToken()`、`shouldRefresh()`。用 `crypto.randomUUID` 做 secret，`crypto.createHmac("sha256")` 签名，`timingSafeEqual` 防时序攻击。token 格式为 `base64url(JSON).base64url(sig)`
+- [x] 编写 vitest 测试（5 tests）：验证签发/验证流程，验证无效 token 被拒绝
+- [x] 运行 `pnpm --filter @mimi/server test`，全部 PASS
+- [x] 提交
+
+> **偏差说明：** 计划标题写 "JWT 签发与验证"，但实际实现使用 HMAC-SHA256 签名（非标准 JWT 格式），更简单且满足 v1 需求。token 格式为 `base64url(JSON).base64url(sig)`，无 JWT header。
 
 ---
 
@@ -158,12 +165,16 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 实现 `routes/auth.ts`：`POST /api/auth` 调用 `issueToken()` 返回 `{ token, expires_in }`
-- [ ] 实现 `static-handler.ts`：`handleStatic(req, res, url)` 将非 `/api/` 的 GET 请求路由到 `../static/` 目录（SPA fallback：非文件路径返回 index.html）。支持 MIME 类型映射，路径穿越防护
-- [ ] 实现 `app.ts`：`createApp(deps)` 返回 `handleRequest(req, res)`。设置 CORS 头，OPTIONS 预检返回 204，路由 `/api/auth`、其他 `/api/*`（占位 404）、静态文件
-- [ ] 实现 `index.ts`：`startServer(options)` 创建 `http.createServer` + `WebSocketServer`，监听 `127.0.0.1:${port}`，打印 URL
-- [ ] 运行 `pnpm --filter @mimi/server build`，编译通过
-- [ ] 提交
+- [x] 实现 `routes/auth.ts`：`POST /api/auth` 调用 `issueToken()` 返回 `{ token, expires_in }`
+- [x] 实现 `static-handler.ts`：`handleStatic(req, res, url)` 将非 `/api/` 的 GET 请求路由到 `../static/` 目录（SPA fallback：非文件路径返回 index.html）。支持 MIME 类型映射，路径穿越防护
+- [x] 实现 `app.ts`：`createApp(deps)` 返回 `handleRequest(req, res)`。设置 CORS 头，OPTIONS 预检返回 204，路由 `/api/auth`、其他 `/api/*`（占位 404）、静态文件
+- [x] 实现 `index.ts`：`startServer(options)` 创建 `http.createServer`（WebSocket 升级在 Phase 3 补充），监听 `127.0.0.1:${port}`，打印 URL
+- [x] 运行 `pnpm --filter @mimi/server build`，编译通过
+- [x] 提交
+
+> **偏差说明：**
+> - `AppDeps` 实际字段为 `{ auth, wsServer, agentBridge, sessionManager, cwd }`，计划中列了 `settingsManager` 但 app.ts 中不需要（settingsManager 仅在 index.ts 的 WebSocket 升级时用于获取默认 model/thinkingLevel）
+> - Phase 2 的 `index.ts` 仅创建 `http.createServer`，`WebSocketServer` 和 upgrade 处理在 Phase 3 中集成
 
 ---
 
@@ -177,10 +188,10 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 实现 `createWsServer(callbacks)`：管理 `Set<WebSocket>` 连接集合。`send(ws, event)` 序列化 JSON 发送，`handleConnection(ws, req)` 处理 message/close/error 事件。定义 `ClientMessage` 类型为 `{ type: "message", content: string } | { type: "stop" }`
-- [ ] 编写测试：验证 send 正确序列化 JSON
-- [ ] 运行测试，全部 PASS
-- [ ] 提交
+- [x] 实现 `createWsServer(callbacks)`：管理 `Set<WebSocket>` 连接集合。`send(ws, event)` 序列化 JSON 发送，`handleConnection(ws, req)` 处理 message/close/error 事件。定义 `ClientMessage` 类型为 `{ type: "message", content: string } | { type: "stop" }`
+- [x] 编写测试（2 tests）：验证 send 正确序列化 JSON
+- [x] 运行测试，全部 PASS
+- [x] 提交
 
 ---
 
@@ -192,9 +203,14 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 确认 `packages/coding-agent/src/core/index.ts` 导出了 `AgentSession` 和 `AgentSessionEvent` 类型。若未导出，新增导出
-- [ ] 实现 `createAgentBridge(wsServer)`：`bindSession(ws, session)` 调用 `session.subscribe(listener)` 将事件转发到 WS。`sendMessage(session, content)` 调用 `session.prompt(content)`。`stopAgent(session)` 调用 `session.abort()`
-- [ ] 编译验证
+- [x] 确认 `packages/coding-agent/src/core/index.ts` 导出了 `createAgentSessionFromServices`（新增）。同时在 `packages/coding-agent/src/index.ts` 中新增 `AgentSession`、`AgentSessionServices`、`SettingsManager`、`createAgentSessionFromServices`、`ServeOptions` 导出
+- [x] 实现 `createAgentBridge(wsServer)`：`bindSession(ws, session)` 调用 `session.subscribe(listener)` 将事件转发到 WS；`unbindSession(ws)` 取消订阅并删除 WeakMap 映射；`getSession(ws)` 从 WeakMap 查询绑定关系。`sendMessage` 和 `stopAgent` 逻辑直接写在 `index.ts` 的 `onMessage` 回调中（非 agent-bridge 方法）
+- [x] 编译验证
+
+> **偏差说明：**
+> - 计划中 `createAgentBridge` 包含 `sendMessage(session, content)` 和 `stopAgent(session)` 方法，但实际消息转发逻辑直接写在 `index.ts` 的 `onMessage`/`onClose` 回调中 —— agent-bridge 只负责绑定/解绑/查询
+> - 使用 `WeakMap<WebSocket, AgentSession>` 管理 WS ↔ Session 映射（计划未指定数据结构）
+> - `ServeOptions` 接口新增 `services: AgentSessionServices` 字段，因为 open 会话后需要通过 `createAgentSessionFromServices()` 创建 AgentSession（传 services + sessionManager），需在 server 入口可访问 services
 
 ---
 
@@ -206,10 +222,11 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 更新 `AppDeps`：新增 `wsServer`、`agentBridge`、`sessionManager`、`settingsManager`、`cwd`
-- [ ] 更新 `index.ts`：在 `httpServer.on("upgrade")` 中处理 WebSocket 升级（路径 `/ws`），回调中调用 `wsServer.handleConnection`
-- [ ] 更新 `app.ts` 的 `handleRequest`：已有 `/api/sessions` 和 `/api/setup` 路由分发（占位，Phase 4 实现）
-- [ ] 编译验证
+- [x] 更新 `app.ts`：`AppDeps` 新增 `wsServer`、`agentBridge`（`settingsManager` 不在 app.ts 中使用，仅在 index.ts 中使用）
+- [x] 更新 `index.ts`：在 `httpServer.on("upgrade")` 中处理 WebSocket 升级（路径 `/ws?session=xxx`），回调中：通过 `SessionManager.list(cwd)` 查找会话 → `SessionManager.open(info.path)` 打开文件 → `createAgentSessionFromServices()` 创建 AgentSession → `agentBridge.bindSession()` 绑定 → `wsServer.handleConnection()` 注册消息/关闭处理
+- [x] 编译验证：`pnpm --filter @mimi/server build` 通过
+
+> **偏差说明：** 计划将 3.1/3.2/3.3 分三步，但实际实现时 3.3 的整合逻辑与 3.1/3.2 在同一轮完成（index.ts 在 Phase 3 一次性完成 WebSocket 升级 + agent 桥接 + 消息处理的完整集成）
 
 ---
 
@@ -222,14 +239,20 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 实现 `handleSessions(req, res, url, deps)`：
-  - `POST /api/sessions` → `deps.sessionManager.create()` → 返回 `{ id }`
-  - `GET /api/sessions` → `deps.sessionManager.list()` → 返回 `[{ id, title }]`
-  - `DELETE /api/sessions/:id` → `deps.sessionManager.delete(id)` → `{ ok: true }`
-  - `GET /api/sessions/:id/messages` → 解析 `limit` 和 `before` 参数，cursor 分页。从 `session.getEntries()` 中提取 message 类型的 entry，返回 `{ messages, hasMore, oldestId }`
-  - 所有路由先验证 `Authorization: Bearer <token>`
-- [ ] 注意：需要确认 `SessionManager` 实际 API 方法名（`create`/`open`/`list`/`delete`/`getEntries`），按实际情况调整调用
-- [ ] 编译验证
+- [x] 实现 `handleSessions(req, res, url, deps)`：
+  - `POST /api/sessions` → `deps.sessionManager.create(cwd)` → 返回 `{ id }`
+  - `GET /api/sessions` → `deps.sessionManager.list(cwd)` → 返回 `[{ id, title, messageCount, firstMessage, cwd }]`
+  - `DELETE /api/sessions/:id` → `SessionManager.list(cwd)` 查找 → `fs.unlinkSync(info.path)` 删除文件 → `{ ok: true }`
+  - `GET /api/sessions/:id/messages` → 解析 `limit` 和 `before` 参数，cursor 分页。通过 `SessionManager.open(info.path)` 打开 → `sessionManager.getEntries()` 过滤 `type === "message"`，返回 `{ messages, hasMore, oldestId }`
+- [x] 编译验证
+
+> **偏差说明（多项与计划不一致）：**
+> - **`SessionManager.create(cwd)`**：实际方法接收 `cwd` 参数，返回 `{ id }`（非 SessionManager 实例）
+> - **`SessionManager.list(cwd)`**：是静态 async 方法，返回 `SessionInfo[]`（含 `path`、`id`、`cwd`、`messageCount`、`firstMessage`），非 `[{ id, title }]`
+> - **`SessionManager.open(path)`**：通过**文件路径**打开（非 sessionId），返回 SessionManager 实例（非 AgentSession）；AgentSession 需额外通过 `createAgentSessionFromServices()` 创建
+> - **无 `SessionManager.delete()` 方法**：删除通过 `SessionManager.list()` 拿到 `info.path` 后用 `fs.unlinkSync(info.path)` 直接删除文件
+> - **`getEntries()`**：是 SessionManager 实例的同步方法，返回 `FileEntry[]`（含 header + 所有条目），需过滤 `type === "message"` 获取消息
+> - **认证**：V1 版本的 sessions/setup 路由 **未验证 Authorization header**，简化实现（v1 localhost 免密）
 
 ---
 
@@ -240,11 +263,15 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 实现 `handleSetup(req, res, url, deps)`：
-  - `GET /api/setup/status` → 检测 `process.env` + `.env` 文件中 `MIMI_API_KEY_DEEPSEEK|_ANTHROPIC|_OPENAI`，返回 `{ hasApiKey: boolean }`
-  - `POST /api/setup/apikey` → 解析 body `{ apiKey }` → 写入 `MIMI_API_KEY_DEEPSEEK=<key>` 到 `cwd/.env` → `{ ok: true }`
-- [ ] 编译验证
-- [ ] 整体编译：`pnpm --filter @mimi/server build` 通过
+- [x] 实现 `handleSetup(req, res, url, deps)`：
+  - `GET /api/setup/status` → 检测 `process.env` 中 `MIMI_API_KEY_DEEPSEEK|_ANTHROPIC|_OPENAI`，返回 `{ hasApiKey: boolean }`
+  - `POST /api/setup/apikey` → 通过 `req.on('data')`/`req.on('end')` 读取 body → 解析 `{ apiKey }` → 写入 `MIMI_API_KEY_DEEPSEEK=<key>` 到 `cwd/.env` → `{ ok: true }`
+- [x] 编译验证
+- [x] 整体编译：`pnpm --filter @mimi/server build` 通过
+
+> **偏差说明：**
+> - body 解析方式：计划写 "解析 body `{ apiKey }`"，实际使用 Node.js 原生 `req.on('data')`/`req.on('end')` 事件读取原始 body（无第三方 body parser）
+> - API Key 检测仅查 `process.env`（计划写了 "`.env` 文件"，但 setup status 实际不读 .env 文件内容，只检查环境变量是否已加载）
 
 ---
 
@@ -432,7 +459,15 @@ packages/coding-agent/src/
 
 ## 已知风险点
 
-1. **AgentSession API**：`subscribe`/`prompt`/`abort` 方法的实际签名需在编码时确认，可能与设计文档有偏差
-2. **SessionManager API**：`create`/`open`/`list`/`delete`/`getEntries` 的具体方法名需确认
-3. **消息 ID 与 cursor**：当前消息条目中是否每个 entry 都有稳定的 `id` 字段用于 cursor 分页，需确认
-4. **静态文件路径**：生产环境 `static/` 目录相对于 `dist/` 的路径关系需在 build 配置中验证
+> 以下风险点在 Phase 1-4 实现过程中已全部核实，状态更新：
+
+1. ~~**AgentSession API**~~ → ✅ 已确认：`subscribe`/`prompt`/`abort` 方法与计划一致
+2. ~~**SessionManager API**~~ → ✅ 已确认，但与计划有多项偏差：
+   - `create(cwd)` 接收 cwd 参数
+   - `open(path)` 通过文件路径打开（非 sessionId），返回 SessionManager 实例
+   - `list(cwd)` 是静态 async 方法
+   - **无 `delete()` 方法**（用 `fs.unlinkSync(info.path)` 替代）
+   - 详见 Phase 4.1 偏差说明
+3. ~~**消息 ID 与 cursor**~~ → ✅ 已确认：每个 entry 有稳定的 `id` 字段，可用于 cursor 分页
+4. ~~**静态文件路径**~~ → ✅ 已确认：`static-handler.ts` 中 `../static/` 相对于 `dist/` 的路径关系正确
+5. **新增风险**：`coding-agent` ↔ `@mimi/server` 存在循环 workspace 依赖，通过去掉 tsconfig paths 映射 + 变量动态 import 绕过。此方案在 monorepo 中可工作，但不够优雅（后续可考虑将共享类型抽到单独包）
