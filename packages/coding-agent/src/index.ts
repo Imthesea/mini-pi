@@ -11,5 +11,17 @@ export {
   SessionManager,
   type SessionInfo,
   type SessionEntry,
+  AgentSession,
+  type AgentSessionEvent,
+  type AgentSessionConfig,
+  type PromptOptions,
+  type SessionStats,
+  type AgentSessionEventListener,
 } from "./core/index.js";
 export { ModelRegistry, ModelRuntime, resolveModel } from "./core/index.js";
+export {
+  createAgentSessionFromServices,
+  type AgentSessionServices,
+} from "./core/index.js";
+export { SettingsManager } from "./core/index.js";
+export { type ServeOptions } from "./server-entry.js";

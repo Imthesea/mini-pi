@@ -2,7 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "paths": {
+      "@mimi/coding-agent": ["../coding-agent/dist/index.d.ts"],
+      "@mimi/coding-agent/core": ["../coding-agent/dist/core/index.d.ts"]
+    }
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]

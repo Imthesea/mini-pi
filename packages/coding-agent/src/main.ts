@@ -305,7 +305,14 @@ export async function main(args: string[]): Promise<void> {
     const port = parsed.port ?? 32123;
     const serveSettingsManager = SettingsManager.create(cwd, agentDir);
     const serveSessionManager = await createSessionManager(parsed, cwd, undefined, serveSettingsManager);
-    await startServe({ port, cwd, settingsManager: serveSettingsManager, sessionManager: serveSessionManager });
+    const serveServices = await createAgentSessionServices({ cwd, agentDir });
+    await startServe({
+      port,
+      cwd,
+      settingsManager: serveSettingsManager,
+      sessionManager: serveSessionManager,
+      services: serveServices,
+    });
     return;
   }
 

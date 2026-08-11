@@ -3,11 +3,18 @@
  */
 import type { IncomingMessage, ServerResponse } from "http";
 import type { createAuth } from "./auth.js";
+import type { createWsServer } from "./ws-server.js";
+import type { createAgentBridge } from "./agent-bridge.js";
+import type { SessionManager } from "@mimi/coding-agent";
 import { handleAuth } from "./routes/auth.js";
 import { handleStatic } from "./static-handler.js";
 
 export interface AppDeps {
   auth: ReturnType<typeof createAuth>;
+  wsServer: ReturnType<typeof createWsServer>;
+  agentBridge: ReturnType<typeof createAgentBridge>;
+  sessionManager: SessionManager;
+  cwd: string;
 }
 
 export function createApp(deps: AppDeps) {
