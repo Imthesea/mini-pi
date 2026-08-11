@@ -25,6 +25,7 @@ import { InteractiveMode, runPrintMode } from "./modes/index.js";
 import { color } from "./utils/ansi.js";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup } from "./cli/startup-ui.js";
 import { resolvePath } from "./utils/paths.js";
+import { startServe } from "./server-entry.js";
 
 // 🔴 Pi: chalk → color()
 // 🔴 Pi: processFileArguments / buildInitialMessage —— @file 参数，V1 不做
@@ -298,6 +299,15 @@ export async function main(args: string[]): Promise<void> {
   void shouldTakeOverStdout;
 
   // 🔴 Pi: validateForkFlags / validateSessionIdFlags —— V1 不做
+
+  // ========== serve 模式：启动 Web 服务 ==========
+  if (parsed.serve) {
+    const port = parsed.port ?? 32123;
+    const serveSettingsManager = SettingsManager.create(cwd, agentDir);
+    const serveSessionManager = await createSessionManager(parsed, cwd, undefined, serveSettingsManager);
+    await startServe({ port, cwd, settingsManager: serveSettingsManager, sessionManager: serveSessionManager });
+    return;
+  }
 
   // ========== 7. 运行迁移 🔴 V1 不做 ==========
 

@@ -5,6 +5,7 @@
     "paths": {
       "@mimi/agent": ["../agent/dist/index.d.ts"],
       "@mimi/ai": ["../ai/dist/index.d.ts"],
+      "@mimi/server": ["../server/dist/index.d.ts"],
       "@mimi/tui": ["../tui/dist/index.d.ts"]
     },
     "rootDir": "src"
