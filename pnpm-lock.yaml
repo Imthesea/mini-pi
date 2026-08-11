@@ -66,9 +66,6 @@ importers:
       '@mimi/ai':
         specifier: workspace:*
         version: link:../ai
-      '@mimi/server':
-        specifier: workspace:*
-        version: link:../server
       '@mimi/tui':
         specifier: workspace:*
         version: link:../tui

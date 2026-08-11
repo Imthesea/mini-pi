@@ -89,10 +89,6 @@ export interface Args {
   messages: string[];
   /** 文件参数列表 🔴 V1 桩 */
   fileArgs: string[];
-  /** 启动 Web 服务模式 */
-  serve?: boolean;
-  /** Web 服务端口 */
-  port?: number;
   /** 未知标志（可能是扩展标志）- 标志名到值的映射 🔴 V1 桩 */
   unknownFlags: Map<string, boolean | string>;
   /** 解析过程中的诊断信息 */
@@ -154,12 +150,6 @@ export function parseArgs(args: string[]): Args {
         break;
       case "--cwd":
         process.env.MIMI_CWD = args[++i];
-        break;
-      case "--serve":
-        result.serve = true;
-        break;
-      case "--port":
-        result.port = parseInt(args[++i], 10);
         break;
 
       // 🔴 V1 桩：接受但不实际使用
@@ -293,8 +283,6 @@ export function printHelp(out: NodeJS.WritableStream = process.stdout): void {
     `  --continue             Continue most recent session`,
     `  --session <id>         Open a specific session`,
     `  --cwd <path>           Working directory`,
-    `  --serve                 Start Web UI server`,
-    `  --port <number>         Web UI server port (default: 32123)`,
     `  --no-session           Don't persist session`,
     `  --help                 Show help`,
     `  --version              Show version`,

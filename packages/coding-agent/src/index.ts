@@ -21,7 +21,8 @@ export {
 export { ModelRegistry, ModelRuntime, resolveModel } from "./core/index.js";
 export {
   createAgentSessionFromServices,
+  createAgentSessionServices,
   type AgentSessionServices,
 } from "./core/index.js";
 export { SettingsManager } from "./core/index.js";
-export { type ServeOptions } from "./server-entry.js";
+export { type ServeOptions } from "./serve-options.js";

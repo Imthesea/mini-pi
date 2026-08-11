@@ -31,7 +31,7 @@ export {
   type AgentSessionRuntimeDiagnostic,
 } from "./agent-session-runtime.js";
 export type { AgentSessionServices } from "./agent-session-services.js";
-export { createAgentSessionFromServices } from "./agent-session-services.js";
+export { createAgentSessionFromServices, createAgentSessionServices } from "./agent-session-services.js";
 export {
   SettingsManager,
   FileSettingsStorage,

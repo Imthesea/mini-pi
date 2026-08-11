@@ -34,6 +34,7 @@ packages/server/
 ├── package.json, tsconfig.json
 └── src/
     ├── index.ts              # startServer() 入口
+    ├── cli-entry.ts          # mimi-serve CLI 入口（bin）
     ├── app.ts                # HTTP + WS 应用组装
     ├── ws-server.ts          # WebSocket 连接管理
     ├── agent-bridge.ts       # AgentSession 订阅 → WS 转发
@@ -62,9 +63,9 @@ packages/webui/
     └── lib/      (client.ts, api.ts, types.ts)
 
 packages/coding-agent/src/
-├── cli/args.ts           # 新增 --serve / --port 参数 + 帮助文本
-├── main.ts               # 新增 serve 模式分支（构建 services + 调用 startServe）
-└── server-entry.ts       # 新增：ServeOptions 类型定义 + startServe() 入口
+├── cli/args.ts           # CLI 参数解析（不再含 --serve/--port）
+├── main.ts               # 主入口（不再含 serve 模式分支）
+└── serve-options.ts      # ServeOptions 类型定义（供 @mimi/server 导入）
 ```
 
 ---
@@ -130,9 +131,9 @@ packages/coding-agent/src/
 - [x] 提交
 
 > **偏差说明：**
-> - `ServeOptions` 接口实际参数后续在 Phase 3 扩展了 `services: AgentSessionServices` 字段（见 Phase 3 偏差说明）
+> - `ServeOptions` 接口实际参数在 Phase 3 扩展了 `services: AgentSessionServices` 字段
 > - `coding-agent/package.json` 额外添加了 `"main": "./dist/index.js"`，因为 Node.js 解析 workspace 包需要该字段
-> - `coding-agent/tsconfig.json` 中去掉了 `@mimi/server` 的 paths 映射，改用变量 `const serverModuleId = "@mimi/server"` 绕过 TS 静态模块解析来解决循环 workspace 依赖问题
+> - **2026-08-11 重构**：`mimi serve` CLI 入口从 `coding-agent` 移到 `@mimi/server`（`server/src/cli-entry.ts`），`ServeOptions` 留在 `coding-agent/src/serve-options.ts`。循环 workspace 依赖已消除
 
 ---
 
@@ -470,4 +471,4 @@ packages/coding-agent/src/
    - 详见 Phase 4.1 偏差说明
 3. ~~**消息 ID 与 cursor**~~ → ✅ 已确认：每个 entry 有稳定的 `id` 字段，可用于 cursor 分页
 4. ~~**静态文件路径**~~ → ✅ 已确认：`static-handler.ts` 中 `../static/` 相对于 `dist/` 的路径关系正确
-5. **新增风险**：`coding-agent` ↔ `@mimi/server` 存在循环 workspace 依赖，通过去掉 tsconfig paths 映射 + 变量动态 import 绕过。此方案在 monorepo 中可工作，但不够优雅（后续可考虑将共享类型抽到单独包）
+5. ~~**循环 workspace 依赖**~~ → ✅ 已解决（2026-08-11）：将 `mimi serve` CLI 入口从 `coding-agent` 移到 `@mimi/server`（新文件 `server/src/cli-entry.ts`），删除 `coding-agent/src/server-entry.ts`，依赖方向变为单向 `server → coding-agent`。`ServeOptions` 类型留在 `coding-agent/src/serve-options.ts`
