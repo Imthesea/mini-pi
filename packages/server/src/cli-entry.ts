@@ -8,8 +8,11 @@ import {
   SessionManager,
   createAgentSessionServices,
   getAgentDir,
+  getPackageDir,
 } from "@mimi/coding-agent";
 import { startServer } from "./index.js";
+import { existsSync } from "fs";
+import { join } from "path";
 
 function parsePort(): number {
   const portIndex = process.argv.indexOf("--port");
@@ -24,6 +27,16 @@ async function main(): Promise<void> {
   const cwd = process.cwd();
   const agentDir = getAgentDir();
   const port = parsePort();
+
+  // 检查 WebUI 静态文件是否存在
+  const staticDir = join(getPackageDir(), "static");
+  if (!existsSync(join(staticDir, "index.html"))) {
+    console.warn(
+      "\n  [WARN] WebUI static files not found at:",
+      staticDir,
+      "\n  Please run: pnpm --filter @mimi/webui build\n",
+    );
+  }
 
   const settingsManager = SettingsManager.create(cwd, agentDir);
   const sessionManager = await SessionManager.continueRecent(cwd);

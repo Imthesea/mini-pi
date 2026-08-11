@@ -23,7 +23,7 @@
 | Phase 5 | ✅ 完成 | 前端基础框架（UI 组件 + App Shell + 路由） |
 | Phase 6 | ✅ 完成 | 聊天组件（MarkdownRenderer + MessageBubble + Composer + ChatView） |
 | Phase 7 | ✅ 完成 | WebSocket 集成（api/client/useWebSocket + useAgentStream + ChatView 接入） |
-| Phase 8 | ⏳ 待开始 | 构建集成 + 端到端验证 |
+| Phase 8 | ✅ 完成 | 构建集成 + 端到端验证（待用户手动验证） |
 
 ---
 
@@ -438,18 +438,19 @@ packages/coding-agent/src/
 
 **步骤：**
 
-- [ ] 确保 `mimi serve` 启动时，先检查 `packages/server/static/` 是否有 `index.html`，若没有则打印提示 "请先运行 pnpm build:webui"
-- [ ] 更新根 package.json 的 build 脚本：`pnpm -r build`（server 和 webui 的 build 脚本已分别在各自 package.json 中定义）
-- [ ] 运行 `pnpm build` 验证全量编译通过
-- [ ] 提交
+- [x] 确保 `mimi-serve` 启动时，先检查 `packages/server/static/` 是否有 `index.html`，若没有则打印提示 "请先运行 pnpm --filter @mimi/webui build"
+- [x] 根 package.json build 脚本无需修改（已有 `pnpm -r build`）
+- [x] 运行 `pnpm build` 验证全量编译通过（6 包全部通过）
+
+> **偏差说明：** Phase 1.3 重构后 CLI 入口从 `mimi --serve` 变为 `npx mimi-serve`，启动命令相应调整。
 
 ---
 
 #### 任务 8.2：端到端手动验证
 
-**步骤：**
+**步骤：**（以下由用户手动执行）
 
-- [ ] 终端 1：`pnpm build && node packages/coding-agent/dist/cli.js --serve`
+- [ ] 终端 1：`pnpm build && npx mimi-serve`
 - [ ] 终端 2：浏览器打开 `http://127.0.0.1:32123`
 - [ ] 验证首次引导页：显示 SetupView → 输入 API Key → 页面刷新 → 进入聊天
 - [ ] 验证聊天流程：输入消息 → agent 回复流式展示 → 工具执行卡片显示状态
