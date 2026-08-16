@@ -22,6 +22,9 @@ export { EventStream, AssistantMessageEventStream } from "./stream/index.js";
 // 文本工具
 export { contentText } from "./utils/text.js";
 
+// TypeBox 辅助
+export { StringEnum } from "./utils/typebox-helpers.js";
+
 // 认证
 export { envApiKey } from "./auth/index.js";
 

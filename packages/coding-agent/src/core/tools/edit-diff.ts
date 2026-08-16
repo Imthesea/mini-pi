@@ -1,5 +1,5 @@
 import type { AgentTool } from "@mimi/agent";
-import { Type, type Static } from "@sinclair/typebox";
+import { Type, type Static } from "typebox";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve, sep, isAbsolute } from "node:path";
 

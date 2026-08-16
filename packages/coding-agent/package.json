@@ -15,7 +15,7 @@
     "@mimi/agent": "workspace:*",
     "@mimi/ai": "workspace:*",
     "@mimi/tui": "workspace:*",
-    "@sinclair/typebox": "^0.34.0"
+    "typebox": "1.1.38"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

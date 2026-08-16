@@ -1,5 +1,5 @@
 import type { AgentTool } from "@mimi/agent";
-import { Type, type Static } from "@sinclair/typebox";
+import { Type, type Static } from "typebox";
 import { exec } from "node:child_process";
 import { BASH_DEFAULT_TIMEOUT_MS, BASH_DEFAULT_MAX_OUTPUT_BYTES } from "../../defaults.js";
 
