@@ -146,12 +146,16 @@ packages/coding-agent/
 - [x] **步骤 3**：修复 jiti 加载 `@mimi/coding-agent` 自引用失败。`src/core/extensions/loader.ts` 补回 `getAliases()`（照抄 pi 的 Node/dev alias 分支），在 `createJiti` 中传 `alias`，映射 `@mimi/coding-agent` → 自身 `dist/index.js`、`@mimi/agent` / `@mimi/ai` / `@mimi/tui` → 对应 workspace dist，以及 typebox 别名（`typebox` / `typebox/compile` / `typebox/value` / `@sinclair/typebox*`）。验证：jiti 加载 `examples/extensions/subagent/index.ts` 成功（`errors: []`、`extensions: 1`、`tools: ["subagent"]`）；`pnpm --filter @mimi/coding-agent test` 66/66 通过。
 
 ### 任务 5：示例代理 + 工作流提示 + README（照抄 pi）
-- [ ] **步骤 1**：照抄 pi `examples/extensions/subagent/agents/*.md` 四个文件（scout/planner/reviewer/worker），`tools` 字段工具名改为本项目 `read_file`/`write_file`/`edit`/`edit_diff`（差异 #11）；`model` 字段按 pi 原样或留空。
-- [ ] **步骤 2**：照抄 pi `examples/extensions/subagent/prompts/*.md` 三个文件（implement/scout-and-plan/implement-and-review）。
-- [ ] **步骤 3**：照抄 pi `examples/extensions/subagent/README.md`，替换：
+> ✅ 已完成（2026-08-16）。
+
+- [x] **步骤 1**：照抄 pi `examples/extensions/subagent/agents/*.md` 四个文件（scout/planner/reviewer/worker），`tools` 字段工具名 `read` → `read_file`（差异 #11；其余 `grep`/`find`/`ls`/`bash` 两边一致，`write`/`edit`/`edit_diff` 这些代理未用到）；`model` 字段照抄 pi 原样（`claude-haiku-4-5`/`claude-sonnet-4-5`）。
+- [x] **步骤 2**：照抄 pi `examples/extensions/subagent/prompts/*.md` 三个文件（implement/scout-and-plan/implement-and-review），无工具名/路径引用，逐字照抄。
+- [x] **步骤 3**：照抄 pi `examples/extensions/subagent/README.md`，替换：
   - `pi` → `mimi`；`~/.pi/agent` → `~/.mimi`（差异 #3）
   - 安装命令中的符号链接路径改为 `~/.mimi/extensions/subagent/`、`~/.mimi/agents/`、`~/.mimi/prompts/`
   - 项目级代理路径 `.pi/agents` → `.mimi/agents`
+  - 代理定义示例与「示例代理」表中的 `tools` 字段 `read` → `read_file`（差异 #11）
+  - **按用户决定删除**描述已删减功能的段落：`Markdown 渲染`/`用量追踪` 功能项、「输出显示」整节（折叠/展开视图 + 工具调用格式化，差异 #4）、安全模型的 `confirmProjectAgents` 段（差异 #7）、限制中的「折叠视图截断 10 项」（差异 #4）。
 
 ### 任务 6：main.ts 清理 + 公共 API 导出（src/index.ts + config.ts）
 > ✅ 已完成（2026-08-16，与任务 1/2 缺口一并补齐）。
