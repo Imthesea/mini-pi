@@ -68,6 +68,8 @@ packages/coding-agent/
 | 11 | 扩展工具名 `read`/`write` | `read_file`/`write_file`/`edit`/`edit_diff` | 本项目核心工具名不同；`formatToolCall` 已随 #4 删除，仅影响示例代理 `tools` 字段（任务 5） |
 | 12 | `discoverAndLoadExtensions(configuredPaths, cwd, agentDir, eventBus?)` 有第 4 参数 `eventBus?` | 本项目无第 4 参数 | 迷你扩展系统删减（无 EventBus） |
 | 13 | `Extension.tools: Map<string, RegisteredTool>`（含 sourceInfo） | `Map<string, ToolDefinition>` | 迷你扩展系统删减（无 sourceInfo 模块） |
+| 14 | 示例代理 `model` 字段用 pi 别名 `claude-haiku-4-5` / `claude-sonnet-4-5` | **删除** `model` 字段，子进程继承默认模型 `deepseek-v4-flash` | 本项目模型注册表只有 `claude-sonnet-4-20250514` / `gpt-5.5` / `deepseek-v4-flash`，且 `model-resolver` 无 pi 的别名匹配（`isAlias`/`tryMatchModel` V1 不做），`claude-haiku-4-5` 会抛 `Unknown model`（2026-08-16 冒烟前发现） |
+| 15 | V1 核心 CLI `-p` 为带值参数、`--mode json` 未实现（`toPrintOutputMode` 写死 `"text"`） | `-p`/`--print` 改为布尔标志（照抄 pi），prompt 走 `messages`；`main.ts` 的 `resolveAppMode`/`toPrintOutputMode` 支持 `"json"` mode | subagent 子进程协议固定为 `["--mode","json","-p","--no-session"]`；原实现下 `-p` 会吞掉后续 `--no-session`、`--mode json` 被忽略导致子进程不输出 JSON 事件流，父进程解析不到结果（2026-08-16 冒烟前发现） |
 
 > **错误约定（差异 #9）**：已查证两边 `AgentToolResult` 定义——pi [types.ts L350-362](file:///F:/allProject/githubProject/pi/packages/agent/src/types.ts#L350-L362) 与本项目 [types.ts L72-84](file:///f:/allProject/githubProject/my-mimipi/packages/agent/src/types.ts#L72-L84) 都只有 `content` / `details` / `addedToolNames?` / `terminate?` 四个字段，**都没有顶层 `isError`**。pi 的 subagent 在失败时 `return { content, details, isError: true }`（不 throw），其中 `isError: true` 是**类型外字段**——pi 的 `examples/` 不参与 tsc 主构建，所以不报 excess property 错误。照抄 pi 时：`isError: true` 照抄保留（jiti 转译不做类型检查，运行时不报错），并确保本项目 `examples/` 也不纳入 tsc 主构建（与 pi 一致）。父 agent 识别失败靠 `content` 里的错误文本，而非 `isError`。
 
@@ -148,7 +150,7 @@ packages/coding-agent/
 ### 任务 5：示例代理 + 工作流提示 + README（照抄 pi）
 > ✅ 已完成（2026-08-16）。
 
-- [x] **步骤 1**：照抄 pi `examples/extensions/subagent/agents/*.md` 四个文件（scout/planner/reviewer/worker），`tools` 字段工具名 `read` → `read_file`（差异 #11；其余 `grep`/`find`/`ls`/`bash` 两边一致，`write`/`edit`/`edit_diff` 这些代理未用到）；`model` 字段照抄 pi 原样（`claude-haiku-4-5`/`claude-sonnet-4-5`）。
+- [x] **步骤 1**：照抄 pi `examples/extensions/subagent/agents/*.md` 四个文件（scout/planner/reviewer/worker），`tools` 字段工具名 `read` → `read_file`（差异 #11；其余 `grep`/`find`/`ls`/`bash` 两边一致，`write`/`edit`/`edit_diff` 这些代理未用到）；`model` 字段**删除**（差异 #14，删除后继承默认 `deepseek-v4-flash`）。
 - [x] **步骤 2**：照抄 pi `examples/extensions/subagent/prompts/*.md` 三个文件（implement/scout-and-plan/implement-and-review），无工具名/路径引用，逐字照抄。
 - [x] **步骤 3**：照抄 pi `examples/extensions/subagent/README.md`，替换：
   - `pi` → `mimi`；`~/.pi/agent` → `~/.mimi`（差异 #3）
@@ -165,12 +167,12 @@ packages/coding-agent/
 > - [x] **步骤 4**：`src/index.ts` 补导出：`CONFIG_DIR_NAME` / `getDocsPath` / `getExamplesPath` / `parseFrontmatter` / `stripFrontmatter` / 扩展系统类型与函数 / `defineTool`。
 
 ### 任务 7：构建与测试验证
-- [ ] **步骤 1**：`pnpm build`（全仓 tsc 全绿）。
-- [ ] **步骤 2**：`pnpm test`（全仓 vitest 全绿；discover.test.ts 已删，其余不受影响）。
-- [ ] **步骤 3**：端到端手工冒烟（可选，需 API key）：
-  1. 符号链接示例扩展与代理（照 README 安装命令，`~/.mimi/...`）。
-  2. `node packages/coding-agent/dist/cli.js -p "Use scout to find all authentication code"`。
-  3. 预期：`discoverAndLoadExtensions` 扫描 `~/.mimi/extensions/subagent/index.ts` → jiti 加载 → `registerTool("subagent")` → 父 agent 调用 → spawn 子进程 → 返回 scout 结果。
+- [x] **步骤 1**：`pnpm build`（全仓 tsc 全绿）。用户已自行运行通过。
+- [x] **步骤 2**：`pnpm test`（全仓 vitest 全绿；discover.test.ts 已删，其余不受影响）。用户已自行运行通过。
+- [x] **步骤 3**：端到端手工冒烟（2026-08-16 通过，用户逐步陪跑）：
+  1. 项目级铺文件（用户手动复制，不碰 `~/.mimi`）：扩展 → `<repo>/.mimi/extensions/subagent/{index.ts,agents.ts}`；代理 → `<repo>/.mimi/agents/{scout,planner,reviewer,worker}.md`；提示跳过（V1 无 slash 命令，subagent 工具不用）。
+  2. 冒烟命令：`node packages/coding-agent/dist/cli.js -p "Use the scout subagent with agentScope project to list files in packages/coding-agent/src/core."`（`agentScope: "project"` 让 `discoverAgents` 读项目级 `.mimi/agents`）。
+  3. 验证（`--mode json` 事件流）：父 agent 调用 `subagent` 工具且 `arguments.agentScope="project"`；工具结果 `details.projectAgentsDir` 指向 `<repo>/.mimi/agents`、`results[0].agentSource="project"`、`exitCode: 0`；子进程以 `deepseek-v4-flash` 跑通 `ls`→`bash dir /s /b` 并回传结果。链路（扩展加载 → 工具注册 → 父 agent 调用 → 项目级代理发现 → 子进程 spawn `--mode json -p` → JSON 解析 → 结果返回）全部打通。
 
 ---
 
@@ -183,6 +185,6 @@ packages/coding-agent/
 **3. 文件名一致性**：`index.ts` / `agents.ts` / `README.md` / `agents/` / `prompts/` 全部与 pi 同名。无自创的 `types.ts`/`discover.ts`/`helpers.ts`/`runner.ts`/`tool.ts`。
 
 **4. 与既有约定冲突检查**：
-- `index.ts` 约 1000+ 行（删 renderCall/renderResult 后约 700 行），**超过 500 行代码阈值**。用户已明确豁免：照抄 pi 的单文件结构（pi 原文件即单文件 1069 行），超 500 行属必要代价。
+- `index.ts` 582 行（pi 原文件 1069 行，删 renderCall/renderResult + 4 个 UI 死代码函数后），**超过 500 行代码阈值**。用户已明确豁免：照抄 pi 的单文件结构（pi 原文件即单文件 1069 行），超 500 行属必要代价。
 - 无 `Object.assign(prototype, ...)` mixin、无 `declare module`。
 - subagent 不进 `builtInExtensions`，避免子进程 `--tools` 过滤时误引入 subagent 造成递归。

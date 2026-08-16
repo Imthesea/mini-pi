@@ -60,7 +60,7 @@ export interface Args {
   /** 禁用所有扩展 🔴 V1 桩 */
   noExtensions?: boolean;
   /** 非交互式打印模式 */
-  print?: string;
+  print?: boolean;
   /** 导出会话到指定路径 🔴 V1 桩 */
   export?: string;
   /** 禁用技能 🔴 V1 桩 */
@@ -115,9 +115,15 @@ export function parseArgs(args: string[]): Args {
     switch (a) {
       // V1 实际使用的 flag
       case "-p":
-      case "--print":
-        result.print = args[++i] ?? "";
+      case "--print": {
+        result.print = true;
+        const next = args[i + 1];
+        if (next !== undefined && !next.startsWith("@") && (!next.startsWith("-") || next.startsWith("---"))) {
+          result.messages.push(next);
+          i++;
+        }
         break;
+      }
       case "--model":
         result.model = args[++i];
         break;
@@ -258,7 +264,7 @@ export function parseArgs(args: string[]): Args {
         } else if (a.startsWith("@")) {
           result.fileArgs.push(a);
         } else {
-          result.print = a;
+          result.messages.push(a);
         }
     }
   }

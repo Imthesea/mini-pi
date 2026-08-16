@@ -101,7 +101,6 @@ Use a chain: first have scout find the read tool, then have planner suggest impr
 name: my-agent
 description: What this agent does
 tools: read_file, grep, find, ls
-model: claude-haiku-4-5
 ---
 
 System prompt for the agent goes here.
@@ -117,10 +116,10 @@ System prompt for the agent goes here.
 
 | 代理 | 用途 | 模型 | 工具 |
 |-------|---------|-------|-------|
-| `scout` | 快速代码侦察 | Haiku | read_file, grep, find, ls, bash |
-| `planner` | 实现计划 | Sonnet | read_file, grep, find, ls |
-| `reviewer` | 代码审查 | Sonnet | read_file, grep, find, ls, bash |
-| `worker` | 通用型 | Sonnet | （所有默认工具） |
+| `scout` | 快速代码侦察 | 默认 | read_file, grep, find, ls, bash |
+| `planner` | 实现计划 | 默认 | read_file, grep, find, ls |
+| `reviewer` | 代码审查 | 默认 | read_file, grep, find, ls, bash |
+| `worker` | 通用型 | 默认 | （所有默认工具） |
 
 ## 工作流提示
 

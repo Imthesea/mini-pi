@@ -96,14 +96,14 @@ function isTruthyEnvFlag(value: string | undefined): boolean {
 }
 
 /** 根据参数和终端状态决定应用的运行模式 */
-function resolveAppMode(parsed: Args, stdinIsTTY: boolean, stdoutIsTTY: boolean): "print" | "interactive" {
+function resolveAppMode(parsed: Args, stdinIsTTY: boolean, stdoutIsTTY: boolean): "print" | "interactive" | "json" {
+  if (parsed.mode === "json") return "json";
   if (parsed.print || !stdinIsTTY || !stdoutIsTTY) return "print";
   return "interactive";
 }
 
-function toPrintOutputMode(_appMode: "print" | "interactive"): "text" | "json" {
-  // 🔴 Pi: appMode === "json" —— V1 args.ts 没有 "json" mode flag
-  return "text";
+function toPrintOutputMode(appMode: "print" | "interactive" | "json"): "text" | "json" {
+  return appMode === "json" ? "json" : "text";
 }
 
 /** 判断是否为纯元数据查询命令（如 --help） */
@@ -477,7 +477,7 @@ export async function main(args: string[]): Promise<void> {
   if (appMode === "interactive") {
     const interactiveMode = new InteractiveMode(runtime, {
       modelFallbackMessage: runtime.modelFallbackMessage,
-      initialMessage: parsed.print ?? stdinContent,
+      initialMessage: parsed.messages[0] ?? stdinContent,
     });
     await interactiveMode.init();
     await interactiveMode.run();
@@ -485,7 +485,7 @@ export async function main(args: string[]): Promise<void> {
     // 🔴 Pi: printTimings / stopThemeWatcher / restoreStdout —— V1 不做
     const exitCode = await runPrintMode(runtime, {
       mode: toPrintOutputMode(appMode),
-      initialMessage: parsed.print ?? stdinContent,
+      initialMessage: parsed.messages[0] ?? stdinContent,
     });
     if (exitCode !== 0) process.exitCode = exitCode;
     return;
