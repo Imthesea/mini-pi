@@ -27,3 +27,7 @@ export function getAgentDir(): string {
 export function getDocsPath(): string {
   return join(getPackageDir(), "docs");
 }
+
+export function getExamplesPath(): string {
+  return join(getPackageDir(), "examples");
+}

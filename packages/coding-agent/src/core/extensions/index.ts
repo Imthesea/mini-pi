@@ -4,6 +4,7 @@
 
 export { discoverAndLoadExtensions, loadExtensionFromFactory } from "./loader.js";
 export { wrapExtensionTool, wrapExtensionTools } from "./wrapper.js";
+export { defineTool } from "./types.js";
 export type {
   Extension,
   ExtensionAPI,

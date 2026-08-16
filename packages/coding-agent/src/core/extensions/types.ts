@@ -65,3 +65,17 @@ export interface LoadExtensionsResult {
   extensions: Extension[];
   errors: Array<{ path: string; error: string }>;
 }
+
+type AnyToolDefinition = ToolDefinition<any, any>;
+
+/**
+ * 保留独立工具定义的参数推断。
+ *
+ * 当把工具赋值给变量或通过数组（如 customTools）传递时使用，
+ * 避免上下文类型推断把 params 拓宽为 unknown。
+ */
+export function defineTool<TParams extends TSchema, TDetails = unknown>(
+  tool: ToolDefinition<TParams, TDetails>,
+): ToolDefinition<TParams, TDetails> & AnyToolDefinition {
+  return tool as ToolDefinition<TParams, TDetails> & AnyToolDefinition;
+}

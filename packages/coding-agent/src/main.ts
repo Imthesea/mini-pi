@@ -40,7 +40,7 @@ import { resolvePath } from "./utils/paths.js";
 // 🔴 Pi: shouldRunFirstTimeSetup / showFirstTimeSetup / showStartupSelector —— 首次设置，V1 不做
 // 🔴 Pi: takeOverStdout / restoreStdout —— TUI 输出抢占，V1 不做
 // 🔴 Pi: runMigrations / showDeprecationWarnings —— 迁移，V1 不做
-// 🔴 Pi: builtInExtensions（内置扩展列表）—— Task 6 填入 subagentExtension，加载链路本任务已接好
+// 🔴 Pi: builtInExtensions（内置扩展列表）—— pi 仅 llama.cpp，本项目无对应内置扩展，保持为空数组；subagent 是 examples 下的示例扩展，靠 discoverAndLoadExtensions 从 ~/.mimi/extensions/ 扫描加载
 // 🔴 Pi: initTheme / stopThemeWatcher —— TUI 主题，V1 不做
 // 🔴 Pi: handleConfigCommand / handlePackageCommand —— 包管理 CLI，V1 不做
 // 🔴 Pi: printTimings / resetTimings / time —— 性能计时，V1 不做
@@ -396,7 +396,7 @@ export async function main(args: string[]): Promise<void> {
     diagnostics.push(...sessionOptionDiagnostics);
 
     // 加载扩展工具（内置扩展 + 文件系统发现的扩展）
-    const builtInExtensions: ExtensionFactory[] = []; // 🔴 Task 6 填入 subagentExtension
+    const builtInExtensions: ExtensionFactory[] = []; // 本项目无内置扩展（pi 仅 llama.cpp，无对应物）；subagent 是 examples 下的示例扩展
     const extensionTools: AgentTool<any>[] = [];
 
     for (const factory of builtInExtensions) {

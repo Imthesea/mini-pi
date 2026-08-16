@@ -3,8 +3,7 @@
  *
  * 对齐 pi 项目 extensions/loader.ts（V1 最小化）。
  * 删减说明（均为 V1 范围外）：
- * - virtualModules / getAliases：pi 用于 Bun 二进制 / workspace alias 场景，
- *   本项目纯 Node + pnpm workspace，jiti 标准 resolve 即可找到依赖
+ * - virtualModules（Bun 二进制打包场景）：本项目纯 Node + pnpm workspace，不需要
  * - 扩展缓存（extensionCache / clearExtensionCache / loadExtensionsCached）
  * - ExtensionRuntime（动作方法 sendMessage / setModel / events 等）
  * - package.json "pi" manifest 发现（保留 index.ts/index.js 规则）
@@ -12,7 +11,9 @@
  */
 
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
 import { CONFIG_DIR_NAME, getAgentDir } from "../../config.js";
 import { resolvePath } from "../../utils/paths.js";
@@ -23,6 +24,51 @@ import type {
   LoadExtensionsResult,
   ToolDefinition,
 } from "./types.js";
+
+const require = createRequire(import.meta.url);
+
+/**
+ * jiti 在 Node.js/开发模式下解析 workspace 包的 alias。
+ * 原因：pnpm workspace 中 `@mimi/coding-agent` 没有指向自身的 node_modules 符号链接，
+ * 扩展（如 examples/extensions/subagent）从包导入时无法用标准 resolve 找到它，
+ * 因此需显式映射到各包的 dist 产物。
+ */
+let _aliases: Record<string, string> | null = null;
+
+function getAliases(): Record<string, string> {
+  if (_aliases) return _aliases;
+
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const packageIndex = path.resolve(__dirname, "../..", "index.js");
+
+  const typeboxEntry = require.resolve("typebox");
+  const typeboxCompileEntry = require.resolve("typebox/compile");
+  const typeboxValueEntry = require.resolve("typebox/value");
+
+  const packagesRoot = path.resolve(__dirname, "../../../../");
+  const resolveWorkspaceOrImport = (workspaceRelativePath: string, specifier: string): string => {
+    const workspacePath = path.join(packagesRoot, workspaceRelativePath);
+    if (fs.existsSync(workspacePath)) {
+      return workspacePath;
+    }
+    return fileURLToPath(import.meta.resolve(specifier));
+  };
+
+  _aliases = {
+    "@mimi/coding-agent": packageIndex,
+    "@mimi/agent": resolveWorkspaceOrImport("agent/dist/index.js", "@mimi/agent"),
+    "@mimi/ai": resolveWorkspaceOrImport("ai/dist/index.js", "@mimi/ai"),
+    "@mimi/tui": resolveWorkspaceOrImport("tui/dist/index.js", "@mimi/tui"),
+    typebox: typeboxEntry,
+    "typebox/compile": typeboxCompileEntry,
+    "typebox/value": typeboxValueEntry,
+    "@sinclair/typebox": typeboxEntry,
+    "@sinclair/typebox/compile": typeboxCompileEntry,
+    "@sinclair/typebox/value": typeboxValueEntry,
+  };
+
+  return _aliases;
+}
 
 /**
  * Create the ExtensionAPI for an extension.
@@ -37,7 +83,10 @@ function createExtensionAPI(extension: Extension): ExtensionAPI {
 }
 
 async function loadExtensionModule(extensionPath: string): Promise<ExtensionFactory | undefined> {
-  const jiti = createJiti(import.meta.url, { moduleCache: false });
+  const jiti = createJiti(import.meta.url, {
+    moduleCache: false,
+    alias: getAliases(),
+  });
   const module = await jiti.import(extensionPath, { default: true });
   const factory = module as ExtensionFactory;
   if (typeof factory !== "function") {

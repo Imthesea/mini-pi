@@ -5,7 +5,33 @@
  */
 
 // 公共 API 随各 Task 逐步补全
-export { APP_NAME, APP_TITLE, VERSION, getAgentDir, getPackageDir } from "./config.js";
+export {
+  APP_NAME,
+  APP_TITLE,
+  CONFIG_DIR_NAME,
+  getAgentDir,
+  getDocsPath,
+  getExamplesPath,
+  getPackageDir,
+  VERSION,
+} from "./config.js";
+export { parseFrontmatter, stripFrontmatter } from "./utils/frontmatter.js";
+// Extension system
+export {
+  defineTool,
+  discoverAndLoadExtensions,
+  loadExtensionFromFactory,
+  wrapExtensionTool,
+  wrapExtensionTools,
+} from "./core/extensions/index.js";
+export type {
+  Extension,
+  ExtensionAPI,
+  ExtensionContext,
+  ExtensionFactory,
+  LoadExtensionsResult,
+  ToolDefinition,
+} from "./core/extensions/index.js";
 export { DEFAULT_MODEL, DEFAULT_THINKING_LEVEL } from "./defaults.js";
 export {
   SessionManager,
