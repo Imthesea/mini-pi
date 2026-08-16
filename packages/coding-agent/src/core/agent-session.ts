@@ -17,6 +17,7 @@ import type {
   Agent,
   AgentEvent,
   AgentMessage,
+  AgentTool,
   ThinkingLevel,
 } from "@mimi/agent";
 import type { ImageContent, Model } from "@mimi/ai";
@@ -40,6 +41,18 @@ export interface AgentSessionConfig {
   modelRuntime: ModelRuntime;
   /** 可供切换的模型范围（Ctrl+P 切换用）—— V1 桩 */
   scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+  /** 可选：限制可用内置工具名子集；空 = 全部内置工具 */
+  toolNames?: string[];
+  /** 可选：追加到 system prompt 末尾的文本 */
+  appendSystemPrompt?: string;
+  /** 可选：扩展系统注入的额外工具 */
+  extraTools?: AgentTool<any>[];
+}
+
+/** 按 toolNames 过滤内置工具。空 toolNames = 返回全部 */
+export function selectTools(all: AgentTool<any>[], toolNames: string[]): AgentTool<any>[] {
+  if (toolNames.length === 0) return all;
+  return all.filter((t) => toolNames.includes(t.name));
 }
 
 /** AgentSession.prompt() 的选项 */
@@ -150,6 +163,12 @@ export class AgentSession {
   private _cwd: string;
   /** 模型运行时 */
   private _modelRuntime: ModelRuntime;
+  /** 内置工具名子集（空 = 全部） */
+  private _toolNames: string[];
+  /** 追加到 system prompt 末尾的文本 */
+  private _appendSystemPrompt: string;
+  /** 扩展系统注入的额外工具 */
+  private _extraTools: AgentTool<any>[];
 
   /** 基础系统 prompt（不含扩展追加内容） */
   private _baseSystemPrompt = "";
@@ -160,6 +179,9 @@ export class AgentSession {
     this._scopedModels = config.scopedModels ?? [];
     this._cwd = config.cwd;
     this._modelRuntime = config.modelRuntime;
+    this._toolNames = config.toolNames ?? [];
+    this._appendSystemPrompt = config.appendSystemPrompt ?? "";
+    this._extraTools = config.extraTools ?? [];
 
     // Always subscribe to agent events for internal handling
     // (session persistence, auto-compaction, retry logic)
@@ -176,19 +198,25 @@ export class AgentSession {
     return this._modelRuntime;
   }
 
+  /** 按 toolNames 过滤内置工具 */
+  private _selectTools(): AgentTool<any>[] {
+    return selectTools(createBuiltinTools(this._cwd), this._toolNames);
+  }
+
   // ==========================================================================
   // 入口
   // ==========================================================================
 
   /** 向 agent 发送文本消息并返回结果。自动持久化到 session */
   async prompt(text: string, options?: PromptOptions): Promise<AgentMessage[]> {
-    // 设置默认工具
+    // 设置默认工具（内置工具子集 + 扩展工具）
     if (this.agent.state.tools.length === 0) {
-      this.agent.state.tools = createBuiltinTools(this._cwd);
+      this.agent.state.tools = [...this._selectTools(), ...this._extraTools];
     }
 
     // 设置 system prompt
     if (!this._baseSystemPrompt) {
+      const append = this._appendSystemPrompt ? `\n\n${this._appendSystemPrompt}` : "";
       this._baseSystemPrompt = [
         `You are mimi, an AI coding assistant.`,
         ``,
@@ -197,6 +225,7 @@ export class AgentSession {
         `You have access to tools for reading, writing, editing files,`,
         `executing shell commands, searching file names (find),`,
         `searching file contents (grep), and listing directories (ls).`,
+        append,
       ].join("\n");
       this.agent.state.systemPrompt = this._baseSystemPrompt;
     }

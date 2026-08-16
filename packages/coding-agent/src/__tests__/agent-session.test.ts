@@ -6,9 +6,11 @@ import { Agent } from "@mimi/agent";
 import { SessionManager } from "../core/session-manager.js";
 import { ModelRegistry } from "../core/model-registry.js";
 import { ModelRuntime } from "../core/model-runtime.js";
-import { AgentSession } from "../core/agent-session.js";
+import { AgentSession, selectTools } from "../core/agent-session.js";
+import { createBuiltinTools } from "../core/tools/index.js";
 import { AgentSessionRuntime } from "../core/agent-session-runtime.js";
 import { createAgentSession } from "../core/sdk.js";
+import type { AgentTool } from "@mimi/agent";
 import type { Model, Provider } from "@mimi/ai";
 
 function makeMockStream(text = "ok") {
@@ -144,5 +146,89 @@ describe("createAgentSession (SDK)", () => {
     delete process.env.MIMI_API_KEY_DEEPSEEK;
 
     expect(result.session).toBeDefined();
+  });
+});
+
+describe("selectTools", () => {
+  const builtin = createBuiltinTools("/tmp");
+
+  it("空 toolNames 返回全部内置工具", () => {
+    expect(selectTools(builtin, [])).toEqual(builtin);
+  });
+
+  it("按名字过滤内置工具", () => {
+    const selected = selectTools(builtin, ["read_file", "grep"]);
+    expect(selected.map((t) => t.name).sort()).toEqual(["grep", "read_file"]);
+  });
+
+  it("未匹配到任何工具时返回空数组", () => {
+    expect(selectTools(builtin, ["nonexistent"])).toEqual([]);
+  });
+});
+
+describe("AgentSession 工具/追加 prompt 注入", () => {
+  function makeExtraTool(name: string): AgentTool<any> {
+    return {
+      name,
+      label: name,
+      description: name,
+      parameters: { type: "object", properties: {} },
+      execute: async () => ({ content: [], details: {} }),
+    };
+  }
+
+  it("toolNames 过滤 + extraTools 合并 + appendSystemPrompt 追加", async () => {
+    const registry = new ModelRegistry();
+    registry.register(makeProvider("deepseek", [TEST_MODEL]));
+    const runtime = new ModelRuntime(registry);
+    const sm = SessionManager.inMemory("/tmp");
+    const agent = new Agent({
+      streamFn: vi.fn().mockReturnValue(makeMockStream("ok")),
+      initialState: { model: TEST_MODEL },
+    });
+    const session = new AgentSession({
+      agent,
+      sessionManager: sm,
+      modelRuntime: runtime,
+      cwd: "/tmp",
+      toolNames: ["read_file"],
+      appendSystemPrompt: "EXTRA_APPEND",
+      extraTools: [makeExtraTool("custom_tool")],
+    });
+
+    process.env.MIMI_API_KEY_DEEPSEEK = "sk-test";
+    await session.prompt("hello");
+    delete process.env.MIMI_API_KEY_DEEPSEEK;
+
+    const toolNames = agent.state.tools.map((t) => t.name).sort();
+    expect(toolNames).toEqual(["custom_tool", "read_file"]);
+    expect(agent.state.systemPrompt.endsWith("EXTRA_APPEND")).toBe(true);
+  });
+
+  it("未指定 toolNames 时注入全部内置工具 + 扩展工具", async () => {
+    const registry = new ModelRegistry();
+    registry.register(makeProvider("deepseek", [TEST_MODEL]));
+    const runtime = new ModelRuntime(registry);
+    const sm = SessionManager.inMemory("/tmp");
+    const agent = new Agent({
+      streamFn: vi.fn().mockReturnValue(makeMockStream("ok")),
+      initialState: { model: TEST_MODEL },
+    });
+    const session = new AgentSession({
+      agent,
+      sessionManager: sm,
+      modelRuntime: runtime,
+      cwd: "/tmp",
+      extraTools: [makeExtraTool("custom_tool")],
+    });
+
+    process.env.MIMI_API_KEY_DEEPSEEK = "sk-test";
+    await session.prompt("hello");
+    delete process.env.MIMI_API_KEY_DEEPSEEK;
+
+    const toolNames = agent.state.tools.map((t) => t.name);
+    expect(toolNames).toContain("read_file");
+    expect(toolNames).toContain("custom_tool");
+    expect(toolNames).toHaveLength(9); // 8 内置 + 1 扩展
   });
 });

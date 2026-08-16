@@ -5,11 +5,12 @@
  * createAgentSession() options. The SDK does the heavy lifting.
  *
  * 从 pi 项目 main.ts 完整抄来（V1 最小化）。
- * 🔴 暂未实现: extensions / migrations / TUI theme / projectTrust / firstTimeSetup /
+ * 🔴 暂未实现: migrations / TUI theme / projectTrust / firstTimeSetup /
  *            sessionPicker / listModels / fileProcessor / timings / httpProxy / RPC / export。
  */
 
 import { createInterface } from "node:readline";
+import { existsSync, readFileSync } from "node:fs";
 import { type Args, parseArgs, printHelp } from "./cli/args.js";
 import { getAgentDir, VERSION } from "./config.js";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.js";
@@ -18,6 +19,13 @@ import {
   createAgentSessionFromServices,
   createAgentSessionServices,
 } from "./core/agent-session-services.js";
+import type { AgentTool } from "@mimi/agent";
+import {
+  discoverAndLoadExtensions,
+  loadExtensionFromFactory,
+  wrapExtensionTools,
+  type ExtensionFactory,
+} from "./core/extensions/index.js";
 import type { ModelRuntime } from "./core/model-runtime.js";
 import { SessionManager } from "./core/session-manager.js";
 import { SettingsManager } from "./core/settings-manager.js";
@@ -32,7 +40,7 @@ import { resolvePath } from "./utils/paths.js";
 // 🔴 Pi: shouldRunFirstTimeSetup / showFirstTimeSetup / showStartupSelector —— 首次设置，V1 不做
 // 🔴 Pi: takeOverStdout / restoreStdout —— TUI 输出抢占，V1 不做
 // 🔴 Pi: runMigrations / showDeprecationWarnings —— 迁移，V1 不做
-// 🔴 Pi: builtInExtensions / InlineExtension —— 扩展，V1 不做
+// 🔴 Pi: builtInExtensions（内置扩展列表）—— Task 6 填入 subagentExtension，加载链路本任务已接好
 // 🔴 Pi: initTheme / stopThemeWatcher —— TUI 主题，V1 不做
 // 🔴 Pi: handleConfigCommand / handlePackageCommand —— 包管理 CLI，V1 不做
 // 🔴 Pi: printTimings / resetTimings / time —— 性能计时，V1 不做
@@ -233,6 +241,20 @@ async function promptForMissingSessionCwd(
 // buildSessionOptions
 // ============================================================================
 
+/** 解析 append-system-prompt 输入：文件存在则读文件内容，否则当作字面文本 */
+function resolvePromptInput(input: string | undefined, description: string): string | undefined {
+  if (!input) return undefined;
+  if (existsSync(input)) {
+    try {
+      return readFileSync(input, "utf-8");
+    } catch (error) {
+      console.error(color(`Warning: Could not read ${description} file ${input}: ${error}`, "yellow"));
+      return input;
+    }
+  }
+  return input;
+}
+
 /** 根据 CLI 参数和配置组装创建 agent 会话所需的选项 */
 function buildSessionOptions(
   parsed: Args,
@@ -259,7 +281,20 @@ function buildSessionOptions(
     options.thinkingLevel = parsed.thinking;
   }
 
-  // 🔴 Pi: resolveCliModel / scopedModels / modelsAreEqual / noTools / tools / excludeTools —— V1 简化
+  // --tools：逗号分隔的工具名允许列表
+  if (parsed.tools) {
+    options.tools = [...parsed.tools];
+  }
+
+  // --append-system-prompt <text|file>：文件存在则读文件，否则当作字面文本
+  if (parsed.appendSystemPrompt && parsed.appendSystemPrompt.length > 0) {
+    const parts = parsed.appendSystemPrompt
+      .map((p) => resolvePromptInput(p, "append system prompt"))
+      .filter((s): s is string => s !== undefined);
+    if (parts.length > 0) options.appendSystemPrompt = parts.join("\n\n");
+  }
+
+  // 🔴 Pi: resolveCliModel / scopedModels / modelsAreEqual / noTools / excludeTools —— V1 简化
 
   return { options, cliThinkingFromModel, diagnostics };
 }
@@ -360,6 +395,32 @@ export async function main(args: string[]): Promise<void> {
     } = buildSessionOptions(parsed, [], false, modelRuntime, runtimeSettingsManager);
     diagnostics.push(...sessionOptionDiagnostics);
 
+    // 加载扩展工具（内置扩展 + 文件系统发现的扩展）
+    const builtInExtensions: ExtensionFactory[] = []; // 🔴 Task 6 填入 subagentExtension
+    const extensionTools: AgentTool<any>[] = [];
+
+    for (const factory of builtInExtensions) {
+      const ext = await loadExtensionFromFactory(factory, runtimeCwd, "<inline>");
+      extensionTools.push(...wrapExtensionTools(Array.from(ext.tools.values()), runtimeCwd));
+    }
+
+    if (!parsed.noExtensions) {
+      const extensionPaths = [
+        ...(parsed.extensions ?? []),
+        ...runtimeSettingsManager.getExtensionPaths(),
+      ];
+      const extResult = await discoverAndLoadExtensions(extensionPaths, runtimeCwd, runtimeAgentDir);
+      extensionTools.push(
+        ...wrapExtensionTools(
+          extResult.extensions.flatMap((e) => Array.from(e.tools.values())),
+          runtimeCwd,
+        ),
+      );
+      for (const e of extResult.errors) {
+        diagnostics.push({ type: "warning", message: `Extension error: ${e.path}: ${e.error}` });
+      }
+    }
+
     // 🔴 Pi: --api-key —— V1 不做
 
     const created = await createAgentSessionFromServices({
@@ -367,6 +428,9 @@ export async function main(args: string[]): Promise<void> {
       sessionManager: runtimeSessionManager,
       model: sessionOptions.model,
       thinkingLevel: sessionOptions.thinkingLevel,
+      tools: sessionOptions.tools,
+      appendSystemPrompt: sessionOptions.appendSystemPrompt,
+      extensionTools,
     });
 
     return {

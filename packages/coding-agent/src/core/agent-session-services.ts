@@ -4,7 +4,7 @@
  * 从 pi 项目 core/agent-session-services.ts 抄来（V1 最小化）。
  */
 
-import { Agent } from "@mimi/agent";
+import { Agent, type AgentTool } from "@mimi/agent";
 import { getAgentDir } from "../config.js";
 import { ModelRegistry } from "./model-registry.js";
 import { ModelRuntime } from "./model-runtime.js";
@@ -63,6 +63,12 @@ export interface CreateAgentSessionFromServicesOptions {
   model?: any;
   /** 会话的 thinking 级别 */
   thinkingLevel?: string;
+  /** 可选：限制可用内置工具名子集 */
+  tools?: string[];
+  /** 可选：追加 system prompt 文本 */
+  appendSystemPrompt?: string;
+  /** 可选：扩展系统注入的工具 */
+  extensionTools?: AgentTool<any>[];
 }
 
 // ═══════════════════════════════════════════
@@ -103,7 +109,7 @@ export async function createAgentSessionServices(
 export function createAgentSessionFromServices(
   options: CreateAgentSessionFromServicesOptions,
 ): any {
-  const { services, sessionManager, model, thinkingLevel } = options;
+  const { services, sessionManager, model, thinkingLevel, tools, appendSystemPrompt, extensionTools } = options;
 
   // 确保 modelRuntime 的 registry 中有 provider
   if (!services.modelRuntime.getModels().length) {
@@ -142,6 +148,9 @@ export function createAgentSessionFromServices(
     sessionManager,
     modelRuntime: services.modelRuntime,
     cwd: services.cwd,
+    toolNames: tools,
+    appendSystemPrompt,
+    extraTools: extensionTools,
   });
 
   return { session, modelFallbackMessage: undefined };
