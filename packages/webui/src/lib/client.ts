@@ -12,8 +12,8 @@ export function createWsClient(): WsClient {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   function connect(wsUrl: string) {
-    url = wsUrl;
     close();
+    url = wsUrl;
 
     ws = new WebSocket(wsUrl);
     ws.onmessage = (ev) => {
