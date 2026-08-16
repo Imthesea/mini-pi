@@ -20,9 +20,9 @@ export async function startServer(options: ServeOptions): Promise<void> {
   const auth = createAuth();
 
   // 从全局设置获取默认 model / thinkingLevel
-  const defaultModel = settingsManager.getDefaultModel() ?? "";
+  const defaultModel = settingsManager.getDefaultModel() || undefined;
   const defaultThinkingLevel =
-    settingsManager.getDefaultThinkingLevel() ?? "none";
+    settingsManager.getDefaultThinkingLevel() || "none";
 
   // WebSocket 消息处理
   const wsServer = createWsServer({
@@ -87,29 +87,31 @@ export async function startServer(options: ServeOptions): Promise<void> {
           socket.destroy();
           return;
         }
-
-        wss.handleUpgrade(req, socket, head, (ws) => {
-          try {
-            // 打开持久化 session
-            const sessionManager = SessionManager.open(info.path);
-            // 创建 AgentSession（加载历史消息 + 绑定 agent 循环）
-            const agentSession = createAgentSessionFromServices({
-              services: { ...services, sessionManager },
-              sessionManager,
-              model: defaultModel,
-              thinkingLevel: defaultThinkingLevel,
-            });
-            agentBridge.bindSession(ws, agentSession);
-            wss.emit("connection", ws, req);
-            wsServer.handleConnection(ws, req);
-          } catch {
-            ws.close(4000, "Session not found");
-          }
-        });
+        upgradeWithPath(info.path);
       })
       .catch(() => {
         socket.destroy();
       });
+
+    function upgradeWithPath(sessionPath: string) {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        try {
+          const sessionManager = SessionManager.open(sessionPath);
+          const { session: agentSession } = createAgentSessionFromServices({
+            services: { ...services, sessionManager },
+            sessionManager,
+            model: defaultModel,
+            thinkingLevel: defaultThinkingLevel,
+          });
+          agentBridge.bindSession(ws, agentSession);
+          wss.emit("connection", ws, req);
+          wsServer.handleConnection(ws, req);
+        } catch (e) {
+          console.error("[WS] Failed to create AgentSession:", e);
+          ws.close(4000, "Session not found");
+        }
+      });
+    }
   });
 
   // 启动服务

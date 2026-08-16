@@ -450,7 +450,7 @@ packages/coding-agent/src/
 
 **步骤：**（以下由用户手动执行）
 
-- [ ] 终端 1：`pnpm build && npx mimi-serve`
+- [ ] 终端 1：`pnpm build && pnpm serve`
 - [ ] 终端 2：浏览器打开 `http://127.0.0.1:32123`
 - [ ] 验证首次引导页：显示 SetupView → 输入 API Key → 页面刷新 → 进入聊天
 - [ ] 验证聊天流程：输入消息 → agent 回复流式展示 → 工具执行卡片显示状态

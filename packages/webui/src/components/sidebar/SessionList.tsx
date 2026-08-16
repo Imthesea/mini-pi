@@ -2,8 +2,12 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
 import type { SessionInfo } from "../../lib/types";
 
+interface SessionItem extends SessionInfo {
+  displayTitle?: string;
+}
+
 interface SessionListProps {
-  sessions: SessionInfo[];
+  sessions: SessionItem[];
   activeSessionId: string | null;
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
@@ -38,7 +42,7 @@ export function SessionList({
               }`}
               onClick={() => onSelectSession(s.id)}
             >
-              <span className="truncate">{s.firstMessage || s.id}</span>
+              <span className="truncate">{s.displayTitle || s.firstMessage || s.id}</span>
               <button
                 className="hidden rounded p-0.5 hover:bg-border group-hover:block"
                 onClick={(e) => {

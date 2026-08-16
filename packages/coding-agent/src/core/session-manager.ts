@@ -453,6 +453,7 @@ export class SessionManager {
     if (this.persist) {
       const fileTimestamp = timestamp.replace(/[:.]/g, "-");
       this.sessionFile = join(this.getSessionDir(), `${fileTimestamp}_${this.sessionId}.jsonl`);
+      this._rewriteFile();
     }
     return this.sessionFile;
   }
@@ -500,7 +501,7 @@ export class SessionManager {
     const hasAssistant = this.fileEntries.some((e) => e.type === "message" && e.message.role === "assistant");
     if (!hasAssistant) { this.flushed = false; return; }
     if (!this.flushed) {
-      const fd = openSync(this.sessionFile, "wx");
+      const fd = openSync(this.sessionFile, "w");
       try { for (const e of this.fileEntries) writeFileSync(fd, `${JSON.stringify(e)}\n`); }
       finally { closeSync(fd); }
       this.flushed = true;

@@ -105,22 +105,26 @@ export function useAgentStream({
     thinking?: string;
   } | null>(null);
   const rafScheduledRef = useRef(false);
+  // 追踪当前正在流式输出的 assistant 消息 ID（参考 nanobot 前端自行管理消息 ID）
+  const streamingAssistantIdRef = useRef<string | null>(null);
 
   // 加载历史消息
   useEffect(() => {
     request<{
       messages: Array<{
         id: string;
-        role: string;
-        content: string;
+        message: {
+          role: string;
+          content: string | unknown[];
+        };
       }>;
       hasMore: boolean;
     }>(`/api/sessions/${sessionId}/messages?limit=50`)
       .then((data) => {
         const history: ChatMessage[] = data.messages.map((m) => ({
           id: m.id,
-          role: m.role as "user" | "assistant",
-          content: extractTextContent(m.content),
+          role: m.message.role as "user" | "assistant",
+          content: extractTextContent(m.message.content),
         }));
         setMessages(history);
       })
@@ -135,23 +139,36 @@ export function useAgentStream({
       switch (event.type) {
         case "message_start": {
           const m = event.message;
-          setMessages((prev) => {
-            const exists = prev.find((p) => p.id === m.id);
-            if (exists) return prev;
-            const newMsg: ChatMessage = {
-              id: m.id,
-              role: m.role as "user" | "assistant",
-              content: m.role === "assistant" ? "" : extractTextContent(m.content),
-            };
-            return [...prev, newMsg];
-          });
+          if (m.role === "user") {
+            // 用户消息：替换乐观 UI 的临时消息（id 以 user- 开头），用 crypto.randomUUID() 生成前端 ID
+            setMessages((prev) => {
+              const withoutOptimistic = prev.filter((p) => !p.id.startsWith("user-"));
+              return [...withoutOptimistic, {
+                id: crypto.randomUUID(),
+                role: "user",
+                content: extractTextContent(m.content),
+              }];
+            });
+          } else {
+            // assistant 消息：前端生成 ID，记录到 ref 供 message_update 匹配
+            const assistantId = crypto.randomUUID();
+            streamingAssistantIdRef.current = assistantId;
+            setMessages((prev) => [...prev, {
+              id: assistantId,
+              role: "assistant",
+              content: "",
+            }]);
+          }
           break;
         }
 
         case "message_update": {
+          // 用 streamingAssistantIdRef 匹配当前 assistant 消息，不依赖服务端 id
+          const targetId = streamingAssistantIdRef.current;
+          if (!targetId) break;
           const update = event.message;
           pendingUpdateRef.current = {
-            messageId: update.id,
+            messageId: targetId,
             content: update.content ? extractTextContent(update.content) : undefined,
             thinking: update.thinking,
           };
@@ -180,7 +197,8 @@ export function useAgentStream({
         }
 
         case "message_end": {
-          // 消息完成 — 无需额外处理，message_update 已同步内容
+          // 消息完成 — 清除 streaming 追踪
+          streamingAssistantIdRef.current = null;
           break;
         }
 
@@ -225,6 +243,14 @@ export function useAgentStream({
 
   const sendMessage = useCallback(
     (content: string) => {
+      // 乐观 UI：立即显示用户消息 + 标记运行中
+      const userMsg: ChatMessage = {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content,
+      };
+      setMessages((prev) => [...prev, userMsg]);
+      setIsRunning(true);
       send({ type: "message", content });
     },
     [send],

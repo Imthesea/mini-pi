@@ -22,6 +22,8 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(
     getSessionIdFromHash,
   );
+  // 本地追踪的首条用户消息（服务端在 AI 回复前不落盘用户消息）
+  const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({});
 
   // 检查 API Key 配置状态
   useEffect(() => {
@@ -81,6 +83,19 @@ export default function App() {
     }
   };
 
+  const handleSetSessionTitle = useCallback((sessionId: string, title: string) => {
+    setSessionTitles((prev) => {
+      if (prev[sessionId]) return prev; // 只记录首条消息
+      return { ...prev, [sessionId]: title };
+    });
+  }, []);
+
+  // 合并本地追踪的首条消息到会话列表
+  const mergedSessions = sessions.map((s) => ({
+    ...s,
+    displayTitle: sessionTitles[s.id] || s.firstMessage || s.id,
+  }));
+
   if (appState === "loading") {
     return (
       <div className="flex h-screen items-center justify-center text-muted-foreground">
@@ -97,7 +112,7 @@ export default function App() {
     <div className="flex h-screen">
       <Sidebar>
         <SessionList
-          sessions={sessions}
+          sessions={mergedSessions}
           activeSessionId={activeSessionId}
           onNewSession={handleNewSession}
           onSelectSession={setHashSessionId}
@@ -107,7 +122,12 @@ export default function App() {
 
       <main className="flex flex-1 flex-col">
         {activeSessionId ? (
-          <ChatView sessionId={activeSessionId} />
+          <ChatView
+            sessionId={activeSessionId}
+            onFirstUserMessage={(content) =>
+              handleSetSessionTitle(activeSessionId!, content)
+            }
+          />
         ) : (
           <div className="flex h-full items-center justify-center text-muted-foreground">
             选择或创建一个会话开始

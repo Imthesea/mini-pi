@@ -8,11 +8,14 @@ import {
   SessionManager,
   createAgentSessionServices,
   getAgentDir,
-  getPackageDir,
 } from "@mimi/coding-agent";
 import { startServer } from "./index.js";
 import { existsSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 function parsePort(): number {
   const portIndex = process.argv.indexOf("--port");
@@ -28,8 +31,8 @@ async function main(): Promise<void> {
   const agentDir = getAgentDir();
   const port = parsePort();
 
-  // 检查 WebUI 静态文件是否存在
-  const staticDir = join(getPackageDir(), "static");
+  // 检查 WebUI 静态文件是否存在（从 dist/ 向上找 static/）
+  const staticDir = join(__dirname, "..", "static");
   if (!existsSync(join(staticDir, "index.html"))) {
     console.warn(
       "\n  [WARN] WebUI static files not found at:",

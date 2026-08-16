@@ -20,6 +20,7 @@ export async function handleSessions(
   if (url === "/api/sessions" && req.method === "POST") {
     const sm = SessionManager.create(cwd);
     const id = sm.getSessionId();
+
     res.writeHead(201, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ id }));
     return;
@@ -55,7 +56,7 @@ export async function handleSessions(
   const rest = match[2];
 
   // GET /api/sessions/:id/messages - 历史消息分页
-  if (rest === "/messages" && req.method === "GET") {
+  if (rest.startsWith("/messages") && req.method === "GET") {
     const sessions = await SessionManager.list(cwd);
     const info = sessions.find((s) => s.id === sessionId);
     if (!info) {
