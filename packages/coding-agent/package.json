@@ -15,6 +15,7 @@
     "@mimi/agent": "workspace:*",
     "@mimi/ai": "workspace:*",
     "@mimi/tui": "workspace:*",
+    "jiti": "2.7.0",
     "typebox": "1.1.38"
   },
   "devDependencies": {
