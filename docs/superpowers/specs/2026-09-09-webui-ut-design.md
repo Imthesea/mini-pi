@@ -414,4 +414,4 @@ packages/webui/src/
 
 1. **`filter-sessions.test.ts` 未落地**：阶段 4 实际实现的是"workspace 分组"（`lib/group-sessions.ts`），而非 §6.3 预想的"搜索过滤"（`filter-sessions.ts`）；搜索功能 v1 未做，故该测试不存在。
 2. **共享 mock helper（§8.1 `src/test/`）未落地**：`lib/client.test.ts` / `lib/api.test.ts` 仍内联各自 `FakeWebSocket` / `stubFetch`，验收第 5 条（Mock helper 复用）待后续清理。
-3. 其余 §9 列出的组件测试（`button`、`AppFrame`、`Sidebar`、`SetupView`、`MarkdownRenderer`、`useWebSocket`）对应阶段 2/3/4 的 UI 细节、阶段 7，随对应阶段实现推进时补充。
+3. 其余 §9 列出的组件测试（`button`、`AppFrame`、`Sidebar`、`MarkdownRenderer`、`useWebSocket`）对应阶段 2/3/4 的 UI 细节，随对应阶段实现推进时补充。

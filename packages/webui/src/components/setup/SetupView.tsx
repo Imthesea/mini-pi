@@ -51,11 +51,12 @@ export function SetupView() {
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           />
           {error && (
-            <p className="text-sm text-red-500">{error}</p>
+            <p className="text-sm text-danger">{error}</p>
           )}
         </div>
 
         <Button
+          variant="primary"
           className="w-full"
           onClick={handleSubmit}
           disabled={loading || !apiKey.trim()}

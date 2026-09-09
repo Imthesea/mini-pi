@@ -1,6 +1,6 @@
 # WebUI 视觉重设计方案
 
-> 日期：2026-09-09 | 状态：实现中（阶段 1-5 已完成，见 §7 实现进度）
+> 日期：2026-09-09 | 状态：实现完成（阶段 1-7，见 §7 实现进度）
 > 上游方案：[`docs/webui-style-alignment.md`](../../webui-style-alignment.md)（已确认：技术路线 A、视觉骨架优先、暗色跟随系统）
 > 单元测试设计：[`2026-09-09-webui-ut-design.md`](./2026-09-09-webui-ut-design.md)
 
@@ -483,6 +483,11 @@ packages/webui/src/
 - 新增 [`components/chat/Hero.tsx`](file:///F:/allProject/githubProject/my-mimipi/packages/webui/src/components/chat/Hero.tsx)：空态居中标题 + 副标题 + 复用 `Composer`（`isRunning=false`）。
 - `Hero` 接口在 §4.6 只声明 `onSend`，实际扩展为 `onSend + currentModel + accessMode`，以复用 `Composer` 的只读模型/访问模式行。
 - `ChatView` 空态（无消息且非运行）时渲染 `Hero`，有消息时渲染 `MessageFlow + Composer`；`currentModel` 来自全局设置 `defaultModel`（未设置时回退 `"auto"`），`accessMode` 写死 `"Workspace Write"`。
+
+**阶段 7 实现补充（相对 §4.7 设计）**：
+
+- 居中卡片、黑白主按钮（胶囊）已由阶段 1 主题基建 + 阶段 2 基础组件自动满足，本阶段仅做两处微调：错误信息 `text-red-500` → `text-danger`（token 化）；`Button` 显式标注 `variant="primary"`。
+- §4.7 提到的 `--dsw-specific-login-input` 输入框专属底色：本项目 token 体系（§3.3）未纳入该 token，故复用现有 `Input`（`bg-background`），不新增专属底色 token，避免过度设计。
 
 ---
 
