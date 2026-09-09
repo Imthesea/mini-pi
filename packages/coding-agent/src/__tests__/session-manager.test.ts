@@ -75,6 +75,28 @@ describe("SessionManager", () => {
     expect(sessions.length).toBe(2);
   });
 
+  it("listAll 扫描 sessions 下所有子目录，返回跨 cwd 会话", async () => {
+    const agentDir = join(tmpDir, "agent");
+    const cwdA = join(tmpDir, "projA");
+    const cwdB = join(tmpDir, "projB");
+    const s1 = SessionManager.create(cwdA, join(agentDir, "sessions", "dirA"), { id: "a1" });
+    s1.appendMessage(ASSISTANT_MSG);
+    const s2 = SessionManager.create(cwdB, join(agentDir, "sessions", "dirB"), { id: "b1" });
+    s2.appendMessage(ASSISTANT_MSG);
+
+    const all = await SessionManager.listAll(agentDir);
+    expect(all.length).toBe(2);
+    const cwds = all.map((s) => s.cwd);
+    expect(cwds).toContain(cwdA);
+    expect(cwds).toContain(cwdB);
+  });
+
+  it("listAll 空 agentDir 返回空列表", async () => {
+    const agentDir = join(tmpDir, "agent-empty");
+    const all = await SessionManager.listAll(agentDir);
+    expect(all).toEqual([]);
+  });
+
   it("getEntries / buildSessionContext", () => {
     const sm = SessionManager.inMemory(tmpDir);
     sm.appendMessage({ role: "user", content: "hi", timestamp: Date.now() } as any);

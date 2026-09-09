@@ -642,8 +642,27 @@ export class SessionManager {
     return sessions;
   }
 
-  /** 列出所有项目目录下的所有会话（V1 桩——不支持全局会话目录） */
-  static async listAll(): Promise<SessionInfo[]> {
-    return [];
+  /** 列出所有工作目录下的所有会话——扫描 sessions 目录下所有子目录 */
+  static async listAll(agentDir: string = getDefaultAgentDir()): Promise<SessionInfo[]> {
+    const sessionsDir = join(agentDir, "sessions");
+    if (!existsSync(sessionsDir)) return [];
+    let subDirs: string[];
+    try {
+      subDirs = await readdir(sessionsDir);
+    } catch {
+      return [];
+    }
+    const all: SessionInfo[] = [];
+    for (const name of subDirs) {
+      const dir = join(sessionsDir, name);
+      try {
+        if (!statSync(dir).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      const sessions = await listSessionsFromDir(dir);
+      all.push(...sessions);
+    }
+    return all;
   }
 }
