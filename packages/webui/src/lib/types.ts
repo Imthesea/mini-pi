@@ -3,6 +3,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   thinkingContent?: string;
+  toolCalls?: ToolCallState[]; // 工具内嵌到 assistant 消息
+  usage?: TokenUsage; // 预留（统计行）
 }
 
 export interface ToolCallState {
@@ -10,6 +12,13 @@ export interface ToolCallState {
   toolName: string;
   status: "running" | "done" | "error";
   args?: Record<string, unknown>;
+  result?: unknown; // 详情列展示（依赖后端转发）
+}
+
+export interface TokenUsage {
+  input: number;
+  output: number;
+  totalTokens: number;
 }
 
 export interface SessionInfo {

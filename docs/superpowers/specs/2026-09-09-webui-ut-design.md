@@ -1,6 +1,6 @@
 # WebUI 单元测试（UT）设计
 
-> 日期：2026-09-09 | 状态：设计稿
+> 日期：2026-09-09 | 状态：设计稿（阶段 5 消息流相关测试已落地，见 §12）
 > 关联设计：[`2026-09-09-webui-style-redesign.md`](./2026-09-09-webui-style-redesign.md)
 > 测试框架：Vitest 3 + jsdom + @testing-library/react + @testing-library/jest-dom
 
@@ -385,3 +385,31 @@ packages/webui/src/
 3. 每个新/改组件都有对应 `.test.tsx`，覆盖：正常渲染、关键 props 分支、交互回调、边界空态。
 4. `useAgentStream` 的"工具内嵌到消息"行为有 hook 测试佐证。
 5. Mock helper 复用（无重复 FakeWebSocket/stubFetch 定义）。
+
+---
+
+## 12. 落地进度（截至 2026-09-09）
+
+阶段 5 消息流重构相关的 L1/L2/L3 测试已全部落地，`pnpm --filter @mimi/webui test` 全绿：**16 文件 88 条**。
+
+已落地的测试文件（与阶段 5 强相关）：
+
+| 层 | 文件 | 用例数 |
+|----|------|--------|
+| L1 | `lib/message-reducer.test.ts` | 15 |
+| L1 | `lib/message-content.test.ts` | 4 |
+| L1 | `lib/tool-args.test.ts` | 5 |
+| L3 | `hooks/useAgentStream.test.tsx` | 6 |
+| L2 | `components/chat/MessageFlow.test.tsx` | 2 |
+| L2 | `components/chat/UserMessage.test.tsx` | 2 |
+| L2 | `components/chat/AssistantMessage.test.tsx` | 4 |
+| L2 | `components/chat/ToolRow.test.tsx` | 5 |
+| L2 | `components/chat/DetailsPanel.test.tsx` | 3 |
+
+（另有阶段 4 的 `lib/group-sessions.test.ts`、`lib/settings-api.test.ts`、`sidebar/SessionList.test.tsx`、`sidebar/SettingsPanel.test.tsx` 及既有 `lib/client.test.ts`、`lib/api.test.ts`、`lib/utils.test.ts`。）
+
+### 与 §9 设计清单的差异
+
+1. **`filter-sessions.test.ts` 未落地**：阶段 4 实际实现的是"workspace 分组"（`lib/group-sessions.ts`），而非 §6.3 预想的"搜索过滤"（`filter-sessions.ts`）；搜索功能 v1 未做，故该测试不存在。
+2. **共享 mock helper（§8.1 `src/test/`）未落地**：`lib/client.test.ts` / `lib/api.test.ts` 仍内联各自 `FakeWebSocket` / `stubFetch`，验收第 5 条（Mock helper 复用）待后续清理。
+3. 其余 §9 列出的组件测试（`button`、`AppFrame`、`Sidebar`、`Composer`、`Hero`、`SetupView`、`MarkdownRenderer`、`useWebSocket`）对应阶段 2/3/4 的 UI 细节、阶段 6/7，随对应阶段实现推进时补充。

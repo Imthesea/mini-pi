@@ -1,7 +1,12 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useWebSocket } from "./useWebSocket";
 import { request } from "../lib/api";
-import type { ChatMessage, ToolCallState } from "../lib/types";
+import {
+  applyEvent,
+  initialStreamState,
+} from "../lib/message-reducer";
+import { extractTextContent } from "../lib/message-content";
+import type { ChatMessage } from "../lib/types";
 
 interface UseAgentStreamOptions {
   sessionId: string;
@@ -9,7 +14,6 @@ interface UseAgentStreamOptions {
 
 interface UseAgentStreamResult {
   messages: ChatMessage[];
-  activeTools: ToolCallState[];
   isRunning: boolean;
   sendMessage: (content: string) => void;
   stopAgent: () => void;
@@ -75,38 +79,18 @@ type WsEvent =
   | WsToolEndEvent
   | WsAgentEndEvent;
 
-// ── 工具函数 ──
-
-function extractTextContent(
-  content: string | unknown[] | undefined,
-): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((c: any) => c.type === "text")
-      .map((c: any) => c.text)
-      .join("");
-  }
-  return "";
-}
-
 export function useAgentStream({
   sessionId,
 }: UseAgentStreamOptions): UseAgentStreamResult {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [activeTools, setActiveTools] = useState<ToolCallState[]>([]);
-  const [isRunning, setIsRunning] = useState(false);
+  const [state, setState] = useState(initialStreamState);
   const { send, onEvent } = useWebSocket({ sessionId });
 
-  // rAF 批处理 refs
+  // rAF 批处理：message_update 高频，合并到一帧
   const pendingUpdateRef = useRef<{
-    messageId: string;
-    content?: string;
+    content?: string | unknown[];
     thinking?: string;
   } | null>(null);
   const rafScheduledRef = useRef(false);
-  // 追踪当前正在流式输出的 assistant 消息 ID（参考 nanobot 前端自行管理消息 ID）
-  const streamingAssistantIdRef = useRef<string | null>(null);
 
   // 加载历史消息
   useEffect(() => {
@@ -126,7 +110,7 @@ export function useAgentStream({
           role: m.message.role as "user" | "assistant",
           content: extractTextContent(m.message.content),
         }));
-        setMessages(history);
+        setState((prev) => ({ ...prev, messages: history }));
       })
       .catch(() => { /* ignore */ });
   }, [sessionId]);
@@ -140,36 +124,30 @@ export function useAgentStream({
         case "message_start": {
           const m = event.message;
           if (m.role === "user") {
-            // 用户消息：替换乐观 UI 的临时消息（id 以 user- 开头），用 crypto.randomUUID() 生成前端 ID
-            setMessages((prev) => {
-              const withoutOptimistic = prev.filter((p) => !p.id.startsWith("user-"));
-              return [...withoutOptimistic, {
+            setState((prev) =>
+              applyEvent(prev, {
+                type: "message_start",
                 id: crypto.randomUUID(),
                 role: "user",
-                content: extractTextContent(m.content),
-              }];
-            });
+                content: m.content,
+              }),
+            );
           } else {
-            // assistant 消息：前端生成 ID，记录到 ref 供 message_update 匹配
-            const assistantId = crypto.randomUUID();
-            streamingAssistantIdRef.current = assistantId;
-            setMessages((prev) => [...prev, {
-              id: assistantId,
-              role: "assistant",
-              content: "",
-            }]);
+            setState((prev) =>
+              applyEvent(prev, {
+                type: "message_start",
+                id: crypto.randomUUID(),
+                role: "assistant",
+              }),
+            );
           }
           break;
         }
 
         case "message_update": {
-          // 用 streamingAssistantIdRef 匹配当前 assistant 消息，不依赖服务端 id
-          const targetId = streamingAssistantIdRef.current;
-          if (!targetId) break;
           const update = event.message;
           pendingUpdateRef.current = {
-            messageId: targetId,
-            content: update.content ? extractTextContent(update.content) : undefined,
+            content: update.content,
             thinking: update.thinking,
           };
 
@@ -181,14 +159,11 @@ export function useAgentStream({
               rafScheduledRef.current = false;
               if (!pending) return;
 
-              setMessages((prev) =>
-                prev.map((m) => {
-                  if (m.id !== pending.messageId) return m;
-                  return {
-                    ...m,
-                    content: pending.content ?? m.content,
-                    thinkingContent: pending.thinking ?? m.thinkingContent,
-                  };
+              setState((prev) =>
+                applyEvent(prev, {
+                  type: "message_update",
+                  content: pending.content,
+                  thinking: pending.thinking,
                 }),
               );
             });
@@ -196,44 +171,39 @@ export function useAgentStream({
           break;
         }
 
-        case "message_end": {
-          // 消息完成 — 清除 streaming 追踪
-          streamingAssistantIdRef.current = null;
+        case "message_end":
+          setState((prev) => applyEvent(prev, { type: "message_end" }));
           break;
-        }
 
         case "tool_execution_start":
-          setActiveTools((prev) => {
-            const exists = prev.find(
-              (t) => t.toolCallId === event.toolCallId,
-            );
-            if (exists) return prev;
-            return [
-              ...prev,
-              {
-                toolCallId: event.toolCallId,
-                toolName: event.toolName,
-                status: "running",
-                args: event.args as Record<string, unknown>,
-              },
-            ];
-          });
+          setState((prev) =>
+            applyEvent(prev, {
+              type: "tool_execution_start",
+              toolCallId: event.toolCallId,
+              toolName: event.toolName,
+              args: event.args,
+            }),
+          );
           break;
 
         case "tool_execution_end":
-          setActiveTools((prev) =>
-            prev.map((t) =>
-              t.toolCallId === event.toolCallId
-                ? { ...t, status: event.isError ? "error" : "done" }
-                : t,
-            ),
+          setState((prev) =>
+            applyEvent(prev, {
+              type: "tool_execution_end",
+              toolCallId: event.toolCallId,
+              result: event.result,
+              isError: event.isError,
+            }),
           );
           break;
 
         case "agent_end":
-          if (!event.willRetry) {
-            setIsRunning(false);
-          }
+          setState((prev) =>
+            applyEvent(prev, {
+              type: "agent_end",
+              willRetry: event.willRetry,
+            }),
+          );
           break;
       }
     });
@@ -249,8 +219,11 @@ export function useAgentStream({
         role: "user",
         content,
       };
-      setMessages((prev) => [...prev, userMsg]);
-      setIsRunning(true);
+      setState((prev) => ({
+        ...prev,
+        messages: [...prev.messages, userMsg],
+        isRunning: true,
+      }));
       send({ type: "message", content });
     },
     [send],
@@ -262,8 +235,8 @@ export function useAgentStream({
 
   const loadMore = useCallback(() => {
     // cursor 分页：取当前最早消息的 id 作为 before
-    if (messages.length === 0) return;
-    const oldestId = messages[0].id;
+    if (state.messages.length === 0) return;
+    const oldestId = state.messages[0].id;
     request<{
       messages: Array<{
         id: string;
@@ -282,10 +255,16 @@ export function useAgentStream({
             role: m.role as "user" | "assistant",
             content: extractTextContent(m.content),
           }));
-        setMessages((prev) => [...older, ...prev]);
+        setState((prev) => ({ ...prev, messages: [...older, ...prev.messages] }));
       })
       .catch(() => { /* ignore */ });
-  }, [sessionId, messages]);
+  }, [sessionId, state.messages]);
 
-  return { messages, activeTools, isRunning, sendMessage, stopAgent, loadMore };
+  return {
+    messages: state.messages,
+    isRunning: state.isRunning,
+    sendMessage,
+    stopAgent,
+    loadMore,
+  };
 }

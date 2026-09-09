@@ -1,6 +1,6 @@
 # WebUI 视觉重设计方案
 
-> 日期：2026-09-09 | 状态：设计稿
+> 日期：2026-09-09 | 状态：实现中（阶段 1-5 已完成，见 §7 实现进度）
 > 上游方案：[`docs/webui-style-alignment.md`](../../webui-style-alignment.md)（已确认：技术路线 A、视觉骨架优先、暗色跟随系统）
 > 单元测试设计：[`2026-09-09-webui-ut-design.md`](./2026-09-09-webui-ut-design.md)
 
@@ -456,6 +456,26 @@ packages/webui/src/
 | 7 引导页 | `SetupView.tsx` | 风格化，逻辑不变 |
 
 每个阶段独立提交、可回退；阶段 1 完成即整体观感改变，后续阶段是结构与交互深化。
+
+### 实现进度（截至 2026-09-09）
+
+| 阶段 | 状态 | 验证 |
+|------|------|------|
+| 1 主题基建 | ✅ 已提交 | — |
+| 2 基础组件 | ✅ 已提交 | — |
+| 3 布局 | ✅ 已提交 | — |
+| 4 侧边栏 | ✅ 已提交 | — |
+| 5 消息流 | ✅ 完成（未提交） | 16 文件 88 测试全绿 + `tsc -b && vite build` 通过 |
+| 6 composer/hero | ⬜ 未开始 | — |
+| 7 引导页 | ⬜ 未开始 | — |
+
+**阶段 5 实现补充（相对 §4.4/§5 设计）**：为让核心状态机可脱离 React 单测，把事件处理从 `useAgentStream` 内联 `switch` 抽成三个独立纯函数：
+
+- [`lib/message-reducer.ts`](file:///F:/allProject/githubProject/my-mimipi/packages/webui/src/lib/message-reducer.ts)：`applyEvent(state, event)` 纯函数状态机，处理全部事件类型（工具内嵌逻辑在此）。
+- [`lib/message-content.ts`](file:///F:/allProject/githubProject/my-mimipi/packages/webui/src/lib/message-content.ts)：`extractTextContent(content)`。
+- [`lib/tool-args.ts`](file:///F:/allProject/githubProject/my-mimipi/packages/webui/src/lib/tool-args.ts)：`summarizeToolArgs(toolName, args?)`。
+
+`useAgentStream` 退化为 `setState(prev => applyEvent(prev, raw))` 的 thin 调用。旧组件 `MessageList`/`MessageBubble`/`ToolCard` 已删除，由 `MessageFlow`/`UserMessage`/`AssistantMessage`/`ToolRow`/`DetailsPanel` 替代。
 
 ---
 

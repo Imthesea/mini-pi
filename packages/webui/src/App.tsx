@@ -5,7 +5,8 @@ import { Sidebar } from "./components/sidebar/Sidebar";
 import { SessionList } from "./components/sidebar/SessionList";
 import { SettingsPanel } from "./components/sidebar/SettingsPanel";
 import { ChatView } from "./components/chat/ChatView";
-import type { SessionInfo } from "./lib/types";
+import { DetailsPanel } from "./components/chat/DetailsPanel";
+import type { SessionInfo, ToolCallState } from "./lib/types";
 
 type AppState = "loading" | "setup" | "chat";
 
@@ -28,6 +29,7 @@ export default function App() {
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [selectedTool, setSelectedTool] = useState<ToolCallState | null>(null);
 
   // 检查 API Key 配置状态
   useEffect(() => {
@@ -141,12 +143,21 @@ export default function App() {
             onFirstUserMessage={(content) =>
               handleSetSessionTitle(activeSessionId!, content)
             }
+            onSelectTool={setSelectedTool}
           />
         ) : (
           <div className="flex h-full items-center justify-center text-muted-foreground">
             选择或创建一个会话开始
           </div>
         )
+      }
+      details={
+        selectedTool ? (
+          <DetailsPanel
+            tool={selectedTool}
+            onClose={() => setSelectedTool(null)}
+          />
+        ) : undefined
       }
     />
     </>

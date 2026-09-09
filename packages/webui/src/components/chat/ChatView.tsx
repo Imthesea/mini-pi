@@ -1,15 +1,22 @@
 import { useAgentStream } from "../../hooks/useAgentStream";
-import { MessageList } from "./MessageList";
+import { MessageFlow } from "./MessageFlow";
 import { Composer } from "./Composer";
+import type { ToolCallState } from "../../lib/types";
 
 interface ChatViewProps {
   sessionId: string;
   onFirstUserMessage?: (content: string) => void;
+  onSelectTool: (tool: ToolCallState) => void;
 }
 
-export function ChatView({ sessionId, onFirstUserMessage }: ChatViewProps) {
-  const { messages, activeTools, isRunning, sendMessage, stopAgent } =
-    useAgentStream({ sessionId });
+export function ChatView({
+  sessionId,
+  onFirstUserMessage,
+  onSelectTool,
+}: ChatViewProps) {
+  const { messages, isRunning, sendMessage, stopAgent } = useAgentStream({
+    sessionId,
+  });
 
   const handleSend = (content: string) => {
     onFirstUserMessage?.(content);
@@ -18,7 +25,11 @@ export function ChatView({ sessionId, onFirstUserMessage }: ChatViewProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <MessageList messages={messages} activeTools={activeTools} />
+      <MessageFlow
+        messages={messages}
+        isRunning={isRunning}
+        onSelectTool={onSelectTool}
+      />
       <Composer
         isRunning={isRunning}
         onSend={handleSend}
