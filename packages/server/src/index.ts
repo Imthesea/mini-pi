@@ -51,6 +51,7 @@ export async function startServer(options: ServeOptions): Promise<void> {
     wsServer,
     agentBridge,
     sessionManager: options.sessionManager,
+    settingsManager,
     cwd,
   });
 
@@ -79,8 +80,8 @@ export async function startServer(options: ServeOptions): Promise<void> {
       return;
     }
 
-    // 通过 list 找到 sessionId 对应的文件路径
-    SessionManager.list(cwd)
+    // 通过 listAll 找到 sessionId 对应的文件路径（支持跨 cwd）
+    SessionManager.listAll()
       .then((sessions) => {
         const info = sessions.find((s) => s.id === sessionId);
         if (!info) {

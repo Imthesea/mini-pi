@@ -5,10 +5,11 @@ import type { IncomingMessage, ServerResponse } from "http";
 import type { createAuth } from "./auth.js";
 import type { createWsServer } from "./ws-server.js";
 import type { createAgentBridge } from "./agent-bridge.js";
-import type { SessionManager } from "@mimi/coding-agent";
+import type { SessionManager, SettingsManager } from "@mimi/coding-agent";
 import { handleAuth } from "./routes/auth.js";
 import { handleSessions } from "./routes/sessions.js";
 import { handleSetup } from "./routes/setup.js";
+import { handleSettings } from "./routes/settings.js";
 import { handleStatic } from "./static-handler.js";
 
 export interface AppDeps {
@@ -16,6 +17,7 @@ export interface AppDeps {
   wsServer: ReturnType<typeof createWsServer>;
   agentBridge: ReturnType<typeof createAgentBridge>;
   sessionManager: SessionManager;
+  settingsManager: SettingsManager;
   cwd: string;
 }
 
@@ -25,7 +27,7 @@ export function createApp(deps: AppDeps) {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader(
       "Access-Control-Allow-Methods",
-      "GET, POST, DELETE, OPTIONS",
+      "GET, POST, PATCH, DELETE, OPTIONS",
     );
     res.setHeader(
       "Access-Control-Allow-Headers",
@@ -57,6 +59,16 @@ export function createApp(deps: AppDeps) {
 
     if (url.startsWith("/api/setup")) {
       handleSetup(req, res, url, deps.cwd).catch(() => {
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Internal Server Error" }));
+        }
+      });
+      return;
+    }
+
+    if (url.startsWith("/api/settings")) {
+      handleSettings(req, res, url, deps.settingsManager).catch(() => {
         if (!res.headersSent) {
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "Internal Server Error" }));

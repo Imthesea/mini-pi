@@ -28,7 +28,7 @@ export async function handleSessions(
 
   // GET /api/sessions - 会话列表
   if (url === "/api/sessions" && req.method === "GET") {
-    const sessions = await SessionManager.list(cwd);
+    const sessions = await SessionManager.listAll();
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify(
@@ -57,7 +57,7 @@ export async function handleSessions(
 
   // GET /api/sessions/:id/messages - 历史消息分页
   if (rest.startsWith("/messages") && req.method === "GET") {
-    const sessions = await SessionManager.list(cwd);
+    const sessions = await SessionManager.listAll();
     const info = sessions.find((s) => s.id === sessionId);
     if (!info) {
       res.writeHead(404, { "Content-Type": "application/json" });
@@ -110,7 +110,7 @@ export async function handleSessions(
 
   // DELETE /api/sessions/:id - 删除会话
   if (rest === "" && req.method === "DELETE") {
-    const sessions = await SessionManager.list(cwd);
+    const sessions = await SessionManager.listAll();
     const info = sessions.find((s) => s.id === sessionId);
     if (!info) {
       res.writeHead(404, { "Content-Type": "application/json" });
