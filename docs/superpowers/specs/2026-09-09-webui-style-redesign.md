@@ -450,7 +450,7 @@ packages/webui/src/
 | 1 主题基建 | `globals.css` + `tailwind.config.ts` | 现有功能不变；页面变蓝灰 + 黑白主按钮；系统切深色跟随变暗 |
 | 2 基础组件 | `button/textarea/input.tsx` | 全站按钮胶囊、圆角统一 |
 | 3 布局 | 新增 `AppFrame.tsx`，改 `App.tsx` | 三栏骨架；侧边栏可折叠；详情列占位 |
-| 4 侧边栏 | `Sidebar/SessionList.tsx` | 顶部 New + 折叠、Workspaces 分组、会话树、底部 Settings |
+| 4 侧边栏 | `Sidebar/SessionList.tsx` | 顶部 New + 折叠、搜索、会话树（选中态）。Workspaces 分组与 Settings 拆至 §8.2，需后端接口配合 |
 | 5 消息流 | 新增 `MessageFlow/UserMessage/AssistantMessage/ToolRow`，改 `useAgentStream`、`types.ts` | 单列文档流；工具内嵌为行；点击开详情列 |
 | 6 composer/hero | `Composer.tsx` + `Hero.tsx` | 输入区带 Commands/访问模式/模型选择器（只读）；空态 hero |
 | 7 引导页 | `SetupView.tsx` | 风格化，逻辑不变 |
@@ -459,7 +459,28 @@ packages/webui/src/
 
 ---
 
-## 8. 待后端配合（暂缓，不阻塞 v1）
+## 8. 后端接口配合
+
+### 8.1 消息流相关（暂缓，不阻塞 v1）
 
 - 统计行需要 `usage`（token/耗时/TTFT/cache）——server 已透传 `message.usage`，需确认完整性，缺则补。
 - 详情列 `result` 需要 server 把 `tool_execution_end.result` 完整转发，当前前端 `ToolCallState` 未接 `result`。
+
+### 8.2 侧边栏 Workspaces 分组 + Settings 面板（已决策：补后端，两个都做）
+
+> 归档时间 2026-09-09。起因：阶段 4 原验收含「Workspaces 分组、底部 Settings」，落地时发现两者都需要后端接口支持，故暂停前端、先补后端。
+
+**现状调查结论**
+
+- **Workspaces 分组**：`SessionManager.listAll()` 原为**空桩**（`return []`，注释「V1 桩——不支持全局会话目录」）；server 的 `/api/sessions` 只调 `SessionManager.list(cwd)`，而 `cwd` 是 server 启动时的单一工作目录，前端因此拿不到跨 cwd 会话。会话实际按 cwd 分目录存储于 `agentDir/sessions/--<cwd 编码>--/`，每个会话文件的 header 已记录 `cwd` 字段。
+- **Settings 面板**：`SettingsManager` 的 get/set 齐全（theme / defaultModel / defaultProvider / defaultThinkingLevel / compaction / retry / transport 等，且写 global settings 无 project-trust 门槛），但 server 无 `/api/settings` 路由，配置零暴露。
+
+**实施计划**
+
+| 步骤 | 内容 | 层 | 状态 |
+|------|------|-----|------|
+| 1 | 实现 `SessionManager.listAll(agentDir?)`（扫描 `sessions/` 下所有子目录汇总）+ 单测 | coding-agent | ✅ 完成（commit `a3d7342`） |
+| 2 | server 会话路由改造：GET / messages / delete / WS upgrade 用 `listAll` 支持跨 cwd | server | 待做 |
+| 3 | 新增 `/api/settings` 路由（GET/PATCH）+ `app.ts`/`index.ts` 传 `settingsManager` | server | 待做 |
+| 4 | 前端 Workspaces 分组（`SessionList` 按 cwd 分组树） | webui | 待做 |
+| 5 | 前端 Settings 面板（UI + 调接口） | webui | 待做 |
