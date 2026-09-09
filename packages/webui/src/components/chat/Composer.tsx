@@ -5,11 +5,19 @@ import { Textarea } from "../ui/textarea";
 
 interface ComposerProps {
   isRunning: boolean;
+  currentModel: string;
+  accessMode: string;
   onSend: (content: string) => void;
   onStop: () => void;
 }
 
-export function Composer({ isRunning, onSend, onStop }: ComposerProps) {
+export function Composer({
+  isRunning,
+  currentModel,
+  accessMode,
+  onSend,
+  onStop,
+}: ComposerProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -33,23 +41,47 @@ export function Composer({ isRunning, onSend, onStop }: ComposerProps) {
 
   return (
     <div className="border-t border-border bg-background p-3">
-      <div className="flex items-end gap-2">
-        <Textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="输入消息 (Enter 发送, Shift+Enter 换行)"
-          className="min-h-[40px] flex-1"
-          rows={1}
-          disabled={isRunning}
-        />
+      <Textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="输入消息 (Enter 发送, Shift+Enter 换行)"
+        className="min-h-[40px]"
+        rows={1}
+        disabled={isRunning}
+      />
+
+      <div className="mt-2 flex items-center gap-2">
+        {/* Commands / 访问模式 / 模型：v1 只读展示，点击 no-op */}
+        <Button variant="ghost" size="sm" type="button">
+          Commands
+        </Button>
+        <div className="flex-1" />
+        <Button variant="ghost" size="sm" type="button">
+          {accessMode}
+        </Button>
+        <Button variant="ghost" size="sm" type="button">
+          {currentModel}
+        </Button>
         {isRunning ? (
-          <Button variant="outline" size="sm" onClick={onStop}>
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            aria-label="停止"
+            onClick={onStop}
+          >
             <Square className="h-4 w-4" />
           </Button>
         ) : (
-          <Button size="sm" onClick={handleSend} disabled={!value.trim()}>
+          <Button
+            size="sm"
+            type="button"
+            aria-label="发送"
+            onClick={handleSend}
+            disabled={!value.trim()}
+          >
             <Send className="h-4 w-4" />
           </Button>
         )}

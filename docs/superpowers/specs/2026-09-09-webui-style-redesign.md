@@ -465,8 +465,8 @@ packages/webui/src/
 | 2 基础组件 | ✅ 已提交 | — |
 | 3 布局 | ✅ 已提交 | — |
 | 4 侧边栏 | ✅ 已提交 | — |
-| 5 消息流 | ✅ 完成（未提交） | 16 文件 88 测试全绿 + `tsc -b && vite build` 通过 |
-| 6 composer/hero | ⬜ 未开始 | — |
+| 5 消息流 | ✅ 已提交 | 16 文件 88 测试全绿 + `tsc -b && vite build` 通过 |
+| 6 composer/hero | ✅ 完成（未提交） | 18 文件 99 测试全绿 + `tsc -b && vite build` 通过 |
 | 7 引导页 | ⬜ 未开始 | — |
 
 **阶段 5 实现补充（相对 §4.4/§5 设计）**：为让核心状态机可脱离 React 单测，把事件处理从 `useAgentStream` 内联 `switch` 抽成三个独立纯函数：
@@ -476,6 +476,13 @@ packages/webui/src/
 - [`lib/tool-args.ts`](file:///F:/allProject/githubProject/my-mimipi/packages/webui/src/lib/tool-args.ts)：`summarizeToolArgs(toolName, args?)`。
 
 `useAgentStream` 退化为 `setState(prev => applyEvent(prev, raw))` 的 thin 调用。旧组件 `MessageList`/`MessageBubble`/`ToolCard` 已删除，由 `MessageFlow`/`UserMessage`/`AssistantMessage`/`ToolRow`/`DetailsPanel` 替代。
+
+**阶段 6 实现补充（相对 §4.4/§4.6 设计）**：
+
+- `Composer` 新增 `currentModel` / `accessMode` 两个只读 props，底部工具条 `[Commands] [Access mode] [Model] [Send/Stop]`；Commands/访问模式/模型均为 `ghost` 只读按钮，点击 no-op。
+- 新增 [`components/chat/Hero.tsx`](file:///F:/allProject/githubProject/my-mimipi/packages/webui/src/components/chat/Hero.tsx)：空态居中标题 + 副标题 + 复用 `Composer`（`isRunning=false`）。
+- `Hero` 接口在 §4.6 只声明 `onSend`，实际扩展为 `onSend + currentModel + accessMode`，以复用 `Composer` 的只读模型/访问模式行。
+- `ChatView` 空态（无消息且非运行）时渲染 `Hero`，有消息时渲染 `MessageFlow + Composer`；`currentModel` 来自全局设置 `defaultModel`（未设置时回退 `"auto"`），`accessMode` 写死 `"Workspace Write"`。
 
 ---
 

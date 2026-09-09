@@ -390,9 +390,9 @@ packages/webui/src/
 
 ## 12. 落地进度（截至 2026-09-09）
 
-阶段 5 消息流重构相关的 L1/L2/L3 测试已全部落地，`pnpm --filter @mimi/webui test` 全绿：**16 文件 88 条**。
+阶段 5 消息流重构 + 阶段 6 composer/hero 相关的 L1/L2/L3 测试已全部落地，`pnpm --filter @mimi/webui test` 全绿：**18 文件 99 条**。
 
-已落地的测试文件（与阶段 5 强相关）：
+已落地的测试文件（阶段 5/6 强相关）：
 
 | 层 | 文件 | 用例数 |
 |----|------|--------|
@@ -405,6 +405,8 @@ packages/webui/src/
 | L2 | `components/chat/AssistantMessage.test.tsx` | 4 |
 | L2 | `components/chat/ToolRow.test.tsx` | 5 |
 | L2 | `components/chat/DetailsPanel.test.tsx` | 3 |
+| L2 | `components/chat/Composer.test.tsx` | 9 |
+| L2 | `components/chat/Hero.test.tsx` | 2 |
 
 （另有阶段 4 的 `lib/group-sessions.test.ts`、`lib/settings-api.test.ts`、`sidebar/SessionList.test.tsx`、`sidebar/SettingsPanel.test.tsx` 及既有 `lib/client.test.ts`、`lib/api.test.ts`、`lib/utils.test.ts`。）
 
@@ -412,4 +414,4 @@ packages/webui/src/
 
 1. **`filter-sessions.test.ts` 未落地**：阶段 4 实际实现的是"workspace 分组"（`lib/group-sessions.ts`），而非 §6.3 预想的"搜索过滤"（`filter-sessions.ts`）；搜索功能 v1 未做，故该测试不存在。
 2. **共享 mock helper（§8.1 `src/test/`）未落地**：`lib/client.test.ts` / `lib/api.test.ts` 仍内联各自 `FakeWebSocket` / `stubFetch`，验收第 5 条（Mock helper 复用）待后续清理。
-3. 其余 §9 列出的组件测试（`button`、`AppFrame`、`Sidebar`、`Composer`、`Hero`、`SetupView`、`MarkdownRenderer`、`useWebSocket`）对应阶段 2/3/4 的 UI 细节、阶段 6/7，随对应阶段实现推进时补充。
+3. 其余 §9 列出的组件测试（`button`、`AppFrame`、`Sidebar`、`SetupView`、`MarkdownRenderer`、`useWebSocket`）对应阶段 2/3/4 的 UI 细节、阶段 7，随对应阶段实现推进时补充。
