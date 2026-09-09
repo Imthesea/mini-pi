@@ -120,6 +120,7 @@ export default function App() {
             onNewSession={handleNewSession}
             onSelectSession={setHashSessionId}
             onDeleteSession={handleDeleteSession}
+            onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
           />
         </Sidebar>
       }

@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { cn } from "../lib/utils";
 
 interface AppFrameProps {
-  /** 侧边栏内容（不含折叠按钮） */
+  /** 侧边栏内容（含其内部的折叠按钮） */
   sidebar: ReactNode;
   /** 侧边栏是否折叠为窄 rail */
   sidebarCollapsed: boolean;
@@ -18,6 +18,7 @@ interface AppFrameProps {
 /**
  * 三栏布局骨架（参考 deepseek-harness）：
  * 侧边栏 | 主区 | 详情列。
+ * 折叠按钮由侧边栏内部（SessionList header）提供；折叠态窄 rail 的展开按钮由本组件渲染。
  * v1 只支持侧边栏折叠，不做拖拽调整宽度。
  */
 export function AppFrame({
@@ -46,19 +47,7 @@ export function AppFrame({
             <ChevronRight className="h-4 w-4" />
           </button>
         ) : (
-          <>
-            <div className="flex h-10 shrink-0 items-center justify-end border-b border-border px-2">
-              <button
-                type="button"
-                onClick={onToggleSidebar}
-                aria-label="折叠侧边栏"
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="min-h-0 flex-1">{sidebar}</div>
-          </>
+          <div className="min-h-0 flex-1">{sidebar}</div>
         )}
       </div>
 

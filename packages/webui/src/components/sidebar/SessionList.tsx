@@ -1,5 +1,8 @@
-import { Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { Plus, Trash2, ChevronLeft, Search } from "lucide-react";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { cn } from "../../lib/utils";
 import type { SessionInfo } from "../../lib/types";
 
 interface SessionItem extends SessionInfo {
@@ -12,6 +15,7 @@ interface SessionListProps {
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
+  onToggleSidebar?: () => void;
 }
 
 export function SessionList({
@@ -20,40 +24,95 @@ export function SessionList({
   onNewSession,
   onSelectSession,
   onDeleteSession,
+  onToggleSidebar,
 }: SessionListProps) {
+  const [query, setQuery] = useState("");
+
+  // 本地按标题过滤（v1 不做后端搜索）
+  const filtered = sessions.filter((s) => {
+    const title = s.displayTitle || s.firstMessage || s.id;
+    return title.toLowerCase().includes(query.trim().toLowerCase());
+  });
+
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-border p-3">
-        <span className="text-sm font-medium">会话</span>
-        <Button variant="ghost" size="sm" onClick={onNewSession}>
+      {/* 顶部：新建会话 + 折叠 */}
+      <div className="flex items-center gap-1 p-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onNewSession}
+          className="flex-1 justify-start gap-2"
+        >
           <Plus className="h-4 w-4" />
+          新建会话
         </Button>
+        {onToggleSidebar && (
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            aria-label="折叠侧边栏"
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2">
-        {sessions.length === 0 ? (
-          <p className="p-2 text-sm text-muted-foreground">暂无会话</p>
+      {/* 搜索 */}
+      <div className="px-2 pb-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索会话"
+            className="h-8 pl-8 text-xs"
+          />
+        </div>
+      </div>
+
+      {/* 会话树 */}
+      <div className="flex-1 overflow-y-auto px-2 pb-2">
+        {filtered.length === 0 ? (
+          <p className="px-2 py-1 text-sm text-muted-foreground">
+            {query ? "无匹配会话" : "暂无会话"}
+          </p>
         ) : (
-          sessions.map((s) => (
-            <div
-              key={s.id}
-              className={`group flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted ${
-                activeSessionId === s.id ? "bg-muted" : ""
-              }`}
-              onClick={() => onSelectSession(s.id)}
-            >
-              <span className="truncate">{s.displayTitle || s.firstMessage || s.id}</span>
-              <button
-                className="hidden rounded p-0.5 hover:bg-border group-hover:block"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteSession(s.id);
-                }}
+          filtered.map((s) => {
+            const active = activeSessionId === s.id;
+            const title = s.displayTitle || s.firstMessage || s.id;
+            return (
+              <div
+                key={s.id}
+                onClick={() => onSelectSession(s.id)}
+                className={cn(
+                  "group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                  active ? "bg-accent" : "hover:bg-muted",
+                )}
               >
-                <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-              </button>
-            </div>
-          ))
+                {/* 选中态左侧品牌蓝竖条 */}
+                <span
+                  className={cn(
+                    "h-4 w-0.5 shrink-0 rounded-full bg-info transition-opacity",
+                    active ? "opacity-100" : "opacity-0",
+                  )}
+                />
+                <span className="flex-1 truncate">{title}</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteSession(s.id);
+                  }}
+                  aria-label="删除会话"
+                  className="hidden rounded p-0.5 hover:bg-border group-hover:block"
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+            );
+          })
         )}
       </div>
     </div>
