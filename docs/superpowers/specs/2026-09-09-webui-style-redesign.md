@@ -480,7 +480,7 @@ packages/webui/src/
 | 步骤 | 内容 | 层 | 状态 |
 |------|------|-----|------|
 | 1 | 实现 `SessionManager.listAll(agentDir?)`（扫描 `sessions/` 下所有子目录汇总）+ 单测 | coding-agent | ✅ 完成（commit `a3d7342`） |
-| 2 | server 会话路由改造：GET / messages / delete / WS upgrade 用 `listAll` 支持跨 cwd | server | 待做 |
-| 3 | 新增 `/api/settings` 路由（GET/PATCH）+ `app.ts`/`index.ts` 传 `settingsManager` | server | 待做 |
-| 4 | 前端 Workspaces 分组（`SessionList` 按 cwd 分组树） | webui | 待做 |
-| 5 | 前端 Settings 面板（UI + 调接口） | webui | 待做 |
+| 2 | server 会话路由改造：GET / messages / delete / WS upgrade 用 `listAll` 支持跨 cwd | server | ✅ 完成（未提交） |
+| 3 | 新增 `/api/settings` 路由（GET/PATCH）+ `app.ts`/`index.ts` 传 `settingsManager` | server | ✅ 完成（未提交） |
+| 4 | 前端 Workspaces 分组（`SessionList` 按 cwd 分组树） | webui | ✅ 完成（未提交） |
+| 5 | 前端 Settings 面板（UI + 调接口） | webui | ✅ 完成（未提交） |

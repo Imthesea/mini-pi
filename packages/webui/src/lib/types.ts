@@ -19,3 +19,23 @@ export interface SessionInfo {
   firstMessage: string;
   cwd: string;
 }
+
+export interface SettingsView {
+  theme: string | null;
+  defaultModel: string | null;
+  defaultProvider: string | null;
+  defaultThinkingLevel: string | null;
+  compaction: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
+  retry: { enabled: boolean; maxRetries: number; baseDelayMs: number };
+  transport: string;
+}
+
+export interface SettingsPatch {
+  theme?: string;
+  defaultModel?: string;
+  defaultProvider?: string;
+  defaultThinkingLevel?: string;
+  transport?: string;
+  compaction?: { enabled?: boolean };
+  retry?: { enabled?: boolean };
+}

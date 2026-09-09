@@ -3,6 +3,7 @@ import { SetupView } from "./components/setup/SetupView";
 import { AppFrame } from "./components/AppFrame";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { SessionList } from "./components/sidebar/SessionList";
+import { SettingsPanel } from "./components/sidebar/SettingsPanel";
 import { ChatView } from "./components/chat/ChatView";
 import type { SessionInfo } from "./lib/types";
 
@@ -26,6 +27,7 @@ export default function App() {
   // 本地追踪的首条用户消息（服务端在 AI 回复前不落盘用户消息）
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // 检查 API Key 配置状态
   useEffect(() => {
@@ -111,8 +113,13 @@ export default function App() {
   }
 
   return (
-    <AppFrame
-      sidebar={
+    <>
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
+      <AppFrame
+        sidebar={
         <Sidebar>
           <SessionList
             sessions={mergedSessions}
@@ -121,6 +128,7 @@ export default function App() {
             onSelectSession={setHashSessionId}
             onDeleteSession={handleDeleteSession}
             onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
         </Sidebar>
       }
@@ -141,5 +149,6 @@ export default function App() {
         )
       }
     />
+    </>
   );
 }
