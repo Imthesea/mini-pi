@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { stubFetch, jsonResponse } from "../test/stub-fetch";
 
 // 每次重新导入模块，隔离模块级 token 状态
 let api: typeof import("./api");
@@ -11,20 +12,6 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
 });
-
-function stubFetch(response: Partial<Response>) {
-  const fetchMock = vi.fn().mockResolvedValue(response);
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
-
-function jsonResponse(body: unknown, ok = true, status = 200) {
-  return {
-    ok,
-    status,
-    json: vi.fn().mockResolvedValue(body),
-  } as unknown as Response;
-}
 
 describe("authenticate", () => {
   it("首次调用请求 token 并缓存", async () => {

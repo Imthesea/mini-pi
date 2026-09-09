@@ -1,6 +1,6 @@
 # WebUI 单元测试（UT）设计
 
-> 日期：2026-09-09 | 状态：设计稿（阶段 5 消息流相关测试已落地，见 §12）
+> 日期：2026-09-09 | 状态：设计稿（阶段 5-7 测试已落地，见 §12）
 > 关联设计：[`2026-09-09-webui-style-redesign.md`](./2026-09-09-webui-style-redesign.md)
 > 测试框架：Vitest 3 + jsdom + @testing-library/react + @testing-library/jest-dom
 
@@ -390,9 +390,9 @@ packages/webui/src/
 
 ## 12. 落地进度（截至 2026-09-09）
 
-阶段 5 消息流重构 + 阶段 6 composer/hero 相关的 L1/L2/L3 测试已全部落地，`pnpm --filter @mimi/webui test` 全绿：**18 文件 99 条**。
+全部设计清单已落地，`pnpm --filter @mimi/webui test` 全绿：**24 文件 122 条**。
 
-已落地的测试文件（阶段 5/6 强相关）：
+已落地的测试文件：
 
 | 层 | 文件 | 用例数 |
 |----|------|--------|
@@ -400,6 +400,7 @@ packages/webui/src/
 | L1 | `lib/message-content.test.ts` | 4 |
 | L1 | `lib/tool-args.test.ts` | 5 |
 | L3 | `hooks/useAgentStream.test.tsx` | 6 |
+| L3 | `hooks/useWebSocket.test.ts` | 3 |
 | L2 | `components/chat/MessageFlow.test.tsx` | 2 |
 | L2 | `components/chat/UserMessage.test.tsx` | 2 |
 | L2 | `components/chat/AssistantMessage.test.tsx` | 4 |
@@ -407,11 +408,17 @@ packages/webui/src/
 | L2 | `components/chat/DetailsPanel.test.tsx` | 3 |
 | L2 | `components/chat/Composer.test.tsx` | 9 |
 | L2 | `components/chat/Hero.test.tsx` | 2 |
+| L2 | `components/setup/SetupView.test.tsx` | 5 |
+| L2 | `components/ui/button.test.tsx` | 6 |
+| L2 | `components/AppFrame.test.tsx` | 4 |
+| L2 | `components/sidebar/Sidebar.test.tsx` | 2 |
+| L2 | `components/MarkdownRenderer.test.tsx` | 3 |
 
 （另有阶段 4 的 `lib/group-sessions.test.ts`、`lib/settings-api.test.ts`、`sidebar/SessionList.test.tsx`、`sidebar/SettingsPanel.test.tsx` 及既有 `lib/client.test.ts`、`lib/api.test.ts`、`lib/utils.test.ts`。）
+
+共享 mock helper 已抽到 `src/test/`（`fake-websocket.ts` / `stub-fetch.ts`），`client.test.ts` / `api.test.ts` / `useWebSocket.test.ts` 复用，验收第 5 条达成。
 
 ### 与 §9 设计清单的差异
 
 1. **`filter-sessions.test.ts` 未落地**：阶段 4 实际实现的是"workspace 分组"（`lib/group-sessions.ts`），而非 §6.3 预想的"搜索过滤"（`filter-sessions.ts`）；搜索功能 v1 未做，故该测试不存在。
-2. **共享 mock helper（§8.1 `src/test/`）未落地**：`lib/client.test.ts` / `lib/api.test.ts` 仍内联各自 `FakeWebSocket` / `stubFetch`，验收第 5 条（Mock helper 复用）待后续清理。
-3. 其余 §9 列出的组件测试（`button`、`AppFrame`、`Sidebar`、`MarkdownRenderer`、`useWebSocket`）对应阶段 2/3/4 的 UI 细节，随对应阶段实现推进时补充。
+2. §11 验收标准其余项（组件测试覆盖、mock helper 复用）均已达成，§9 清单中除 `filter-sessions` 外的测试文件全部落地。
