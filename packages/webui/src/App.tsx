@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { SetupView } from "./components/setup/SetupView";
+import { AppFrame } from "./components/AppFrame";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { SessionList } from "./components/sidebar/SessionList";
 import { ChatView } from "./components/chat/ChatView";
@@ -24,6 +25,7 @@ export default function App() {
   );
   // 本地追踪的首条用户消息（服务端在 AI 回复前不落盘用户消息）
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({});
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // 检查 API Key 配置状态
   useEffect(() => {
@@ -109,19 +111,22 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen">
-      <Sidebar>
-        <SessionList
-          sessions={mergedSessions}
-          activeSessionId={activeSessionId}
-          onNewSession={handleNewSession}
-          onSelectSession={setHashSessionId}
-          onDeleteSession={handleDeleteSession}
-        />
-      </Sidebar>
-
-      <main className="flex flex-1 flex-col">
-        {activeSessionId ? (
+    <AppFrame
+      sidebar={
+        <Sidebar>
+          <SessionList
+            sessions={mergedSessions}
+            activeSessionId={activeSessionId}
+            onNewSession={handleNewSession}
+            onSelectSession={setHashSessionId}
+            onDeleteSession={handleDeleteSession}
+          />
+        </Sidebar>
+      }
+      sidebarCollapsed={sidebarCollapsed}
+      onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+      conversation={
+        activeSessionId ? (
           <ChatView
             sessionId={activeSessionId}
             onFirstUserMessage={(content) =>
@@ -132,8 +137,8 @@ export default function App() {
           <div className="flex h-full items-center justify-center text-muted-foreground">
             选择或创建一个会话开始
           </div>
-        )}
-      </main>
-    </div>
+        )
+      }
+    />
   );
 }

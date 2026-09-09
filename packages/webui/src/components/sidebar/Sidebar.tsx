@@ -8,12 +8,7 @@ interface SidebarProps {
 
 export function Sidebar({ children, className }: SidebarProps) {
   return (
-    <aside
-      className={cn(
-        "flex h-full w-64 flex-col border-r border-border bg-background",
-        className,
-      )}
-    >
+    <aside className={cn("flex h-full min-h-0 flex-col", className)}>
       {children}
     </aside>
   );
