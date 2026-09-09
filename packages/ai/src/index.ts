@@ -16,6 +16,9 @@ export { ModelsError } from "./provider/index.js";
 // 错误分类（agent 层重试依赖）
 export { isRetryableAssistantError } from "./utils/retry.js";
 
+// 上下文溢出检测（compaction 层依赖）
+export { isContextOverflow, getOverflowPatterns } from "./utils/overflow.js";
+
 // 事件流
 export { EventStream, AssistantMessageEventStream } from "./stream/index.js";
 

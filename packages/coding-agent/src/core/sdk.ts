@@ -13,6 +13,7 @@ import { ModelRegistry } from "./model-registry.js";
 import { ModelRuntime } from "./model-runtime.js";
 import { resolveModel } from "./model-resolver.js";
 import { SessionManager } from "./session-manager.js";
+import { SettingsManager } from "./settings-manager.js";
 import { AgentSessionRuntime } from "./agent-session-runtime.js";
 import type { AgentSessionServices, AgentSessionRuntimeDiagnostic } from "./agent-session-services.js";
 
@@ -123,9 +124,11 @@ export async function createAgentSession(
   });
 
   // 6. 创建 AgentSession
+  const settingsManager = SettingsManager.create(cwd, agentDir);
   const session = new AgentSession({
     agent,
     sessionManager,
+    settingsManager,
     cwd,
     modelRuntime,
   });

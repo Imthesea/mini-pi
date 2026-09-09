@@ -12,6 +12,7 @@ import { resolveModel } from "./model-resolver.js";
 import { DEFAULT_MODEL } from "../defaults.js";
 import { anthropicProvider, openaiProvider, deepseekProvider } from "@mimi/ai";
 import type { SessionManager } from "./session-manager.js";
+import { SettingsManager } from "./settings-manager.js";
 import { AgentSession } from "./agent-session.js";
 
 // ═══════════════════════════════════════════
@@ -143,9 +144,11 @@ export function createAgentSessionFromServices(
   });
 
   // 创建 AgentSession
+  const settingsManager = SettingsManager.create(services.cwd, services.agentDir);
   const session = new AgentSession({
     agent,
     sessionManager,
+    settingsManager,
     modelRuntime: services.modelRuntime,
     cwd: services.cwd,
     toolNames: tools,

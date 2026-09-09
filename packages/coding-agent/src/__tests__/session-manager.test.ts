@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { SessionManager } from "../core/session-manager.js";
+import { SessionManager, getLatestCompactionEntry } from "../core/session-manager.js";
 
 // Pi 的 session-manager 采用延迟写：_persist() 只在第一条 assistant 消息后才写入文件。
 // 因此测试中需要在 create/open 后 append 一条 assistant 消息触发持久化。
@@ -82,5 +82,52 @@ describe("SessionManager", () => {
     expect(sm.getEntries().length).toBe(2);
     const ctx = sm.buildSessionContext();
     expect(ctx.messages.length).toBe(2);
+  });
+
+  it("getBranch 返回从根到叶子的路径", () => {
+    const sm = SessionManager.inMemory(tmpDir);
+    sm.appendMessage({ role: "user", content: "a", timestamp: Date.now() } as any);
+    sm.appendMessage(ASSISTANT_MSG);
+    sm.appendMessage({ role: "user", content: "b", timestamp: Date.now() } as any);
+
+    const branch = sm.getBranch();
+    expect(branch.length).toBe(3);
+    expect(branch[0].id).toBe(sm.getEntries()[0].id);
+    expect(branch[branch.length - 1].id).toBe(sm.getLeafId());
+  });
+
+  it("getBranch(fromId) 从指定节点回溯", () => {
+    const sm = SessionManager.inMemory(tmpDir);
+    sm.appendMessage({ role: "user", content: "a", timestamp: Date.now() } as any);
+    const secondId = sm.appendMessage(ASSISTANT_MSG);
+    sm.appendMessage({ role: "user", content: "b", timestamp: Date.now() } as any);
+
+    const branch = sm.getBranch(secondId);
+    expect(branch.length).toBe(2);
+    expect(branch[branch.length - 1].id).toBe(secondId);
+  });
+
+  it("appendCompaction 后 buildSessionContext 包含 compactionSummary 消息", () => {
+    const sm = SessionManager.inMemory(tmpDir);
+    sm.appendMessage({ role: "user", content: "a", timestamp: Date.now() } as any);
+    sm.appendMessage(ASSISTANT_MSG);
+    sm.appendCompaction("summary text", "kept-id", 100);
+
+    const ctx = sm.buildSessionContext();
+    expect(ctx.messages.some((m: any) => m.role === "compactionSummary")).toBe(true);
+  });
+
+  it("getLatestCompactionEntry 找到最后一条 compaction", () => {
+    const sm = SessionManager.inMemory(tmpDir);
+    sm.appendMessage(ASSISTANT_MSG);
+    const cid = sm.appendCompaction("summary", "kept-id", 100);
+    expect(getLatestCompactionEntry(sm.getEntries())?.id).toBe(cid);
+    expect(getLatestCompactionEntry(sm.getEntries())?.summary).toBe("summary");
+  });
+
+  it("无 compaction 时 getLatestCompactionEntry 返回 null", () => {
+    const sm = SessionManager.inMemory(tmpDir);
+    sm.appendMessage(ASSISTANT_MSG);
+    expect(getLatestCompactionEntry(sm.getEntries())).toBeNull();
   });
 });

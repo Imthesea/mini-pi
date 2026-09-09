@@ -9,8 +9,11 @@
  *
  * 契约:
  * - **不** throw 或 reject(失败编码到流中,runLoop 看到 stopReason="error" 自行处理)
- * - **不**重复 emit 同一个事件(message_start 只发一次,message_end 必发)
- * - 重试期间,AssistantMessage 推入 context.messages 一次,message_start 在第一帧派发
+ * - **不**重复 emit 边界事件:
+ *   - `message_start` 只在第一次尝试时派发一次(重试不再重复)
+ *   - `message_end` 只在最终结果(成功或最终失败)时派发一次
+ *   - 中间失败的尝试**不**派发 message_end,避免把失败消息推进 Agent 状态
+ * - 重试期间,AssistantMessage 推入 context.messages 一次;下一次尝试前会 pop 掉失败的 partial
  */
 
 import {
@@ -39,7 +42,7 @@ const FALLBACK_STREAM_FN_ERROR =
  * 阻塞地拿到一个 assistant response。
  *
  * - context 会被 mutate(partial assistant message 推入 messages)
- * - emit 会被调用若干次(message_start / message_update / message_end)
+ * - emit 会被调用若干次(message_start 一次 / message_update 多次 / message_end 一次)
  * - 返回 final AssistantMessage(stopReason 可能是 "stop" / "toolUse" / "length" / "error" / "aborted")
  */
 export async function streamAssistantResponse(args: {
@@ -53,6 +56,9 @@ export async function streamAssistantResponse(args: {
   const maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
   const maxRetryDelay = config.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
 
+  // message_start 只派发一次：跨重试尝试共享的标志
+  let messageStarted = false;
+
   // 重试循环：可重试错误 → 退避 → 重新发起 LLM 请求
   for (let attempt = 0; ; attempt++) {
     const result = await attemptStreamAssistant({
@@ -61,19 +67,28 @@ export async function streamAssistantResponse(args: {
       signal,
       emit,
       streamFn: streamFn ?? config.streamFn,
+      messageStarted,
     });
+    messageStarted = result.messageStarted;
 
-    // 非错误：直接返回
-    if (result.stopReason !== "error") return result;
+    // 非错误：成功，派发 message_end 后返回
+    if (result.finalMessage.stopReason !== "error") {
+      await emit({ type: "message_end", message: result.finalMessage });
+      return result.finalMessage;
+    }
 
-    // 不可重试 或 重试耗尽：返回错误结果
-    const errorMsg = result.errorMessage ?? "Unknown error";
+    // 不可重试 或 重试耗尽：作为最终失败返回
+    const errorMsg = result.finalMessage.errorMessage ?? "Unknown error";
     if (attempt >= maxRetries || !isRetryableAssistantError(errorMsg)) {
-      return result;
+      await emit({ type: "message_end", message: result.finalMessage });
+      return result.finalMessage;
     }
 
     // 退避
-    if (signal?.aborted) return result;
+    if (signal?.aborted) {
+      await emit({ type: "message_end", message: result.finalMessage });
+      return result.finalMessage;
+    }
     const delay = Math.min(maxRetryDelay, computeBackoffMs(attempt));
     await sleep(delay, signal);
 
@@ -87,15 +102,23 @@ export async function streamAssistantResponse(args: {
   }
 }
 
-/** 单次尝试：转换 context → 调 streamFn → 转发事件 → 返回 final message */
+/** 单次尝试的返回：finalMessage + message_start 是否已派发 */
+type AttemptResult = {
+  finalMessage: AssistantMessage;
+  messageStarted: boolean;
+};
+
+/** 单次尝试：转换 context → 调 streamFn → 转发 message_update → 返回 final message */
 async function attemptStreamAssistant(args: {
   context: AgentContext;
   config: AgentLoopConfig;
   signal: AbortSignal | undefined;
   emit: AgentEventSink;
   streamFn: StreamFn | undefined;
-}): Promise<AssistantMessage> {
+  messageStarted: boolean;
+}): Promise<AttemptResult> {
   const { context, config, signal, emit, streamFn } = args;
+  let messageStarted = args.messageStarted;
 
   // 1. transformContext(可选):AgentMessage[] → AgentMessage[]
   let messages: AgentMessage[] = context.messages;
@@ -114,7 +137,7 @@ async function attemptStreamAssistant(args: {
   };
 
   if (!streamFn) {
-    // 没有 streamFn：构造错误消息并 emit
+    // 没有 streamFn：构造错误消息，边界事件由 streamAssistantResponse 统一派发
     const errorMessage: AssistantMessage = {
       role: "assistant",
       content: [],
@@ -126,9 +149,7 @@ async function attemptStreamAssistant(args: {
       errorMessage: FALLBACK_STREAM_FN_ERROR,
       timestamp: Date.now(),
     };
-    await emit({ type: "message_start", message: errorMessage });
-    await emit({ type: "message_end", message: errorMessage });
-    return errorMessage;
+    return { finalMessage: errorMessage, messageStarted };
   }
 
   // 4. 解析 apiKey(短生命周期 OAuth token 友好)
@@ -153,7 +174,10 @@ async function attemptStreamAssistant(args: {
         partialMessage = event.partial;
         context.messages.push(partialMessage);
         addedPartial = true;
-        await emit({ type: "message_start", message: { ...partialMessage } });
+        if (!messageStarted) {
+          await emit({ type: "message_start", message: { ...partialMessage } });
+          messageStarted = true;
+        }
         break;
 
       case "text_start":
@@ -184,11 +208,11 @@ async function attemptStreamAssistant(args: {
         } else {
           context.messages.push(finalMessage);
         }
-        if (!addedPartial) {
+        if (!addedPartial && !messageStarted) {
           await emit({ type: "message_start", message: { ...finalMessage } });
+          messageStarted = true;
         }
-        await emit({ type: "message_end", message: finalMessage });
-        return finalMessage;
+        return { finalMessage, messageStarted };
       }
     }
   }
@@ -199,10 +223,12 @@ async function attemptStreamAssistant(args: {
     context.messages[context.messages.length - 1] = finalMessage;
   } else {
     context.messages.push(finalMessage);
-    await emit({ type: "message_start", message: { ...finalMessage } });
+    if (!messageStarted) {
+      await emit({ type: "message_start", message: { ...finalMessage } });
+      messageStarted = true;
+    }
   }
-  await emit({ type: "message_end", message: finalMessage });
-  return finalMessage;
+  return { finalMessage, messageStarted };
 }
 
 /** 退避策略:100ms, 200ms, 400ms, ... cap 在 maxRetryDelay */

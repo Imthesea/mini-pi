@@ -1,8 +1,8 @@
 /**
- * Context compaction for long sessions.
+ * 长会话的上下文压缩。
  *
- * Pure functions for compaction logic. The session manager handles I/O,
- * and after compaction the session is reloaded.
+ * 压缩逻辑的纯函数。会话管理器负责 I/O，
+ * 压缩完成后会重新加载会话。
  *
  * 从 pi 项目 core/compaction/compaction.ts 抄来（V1 最小化）。
  * 🔴 删除：CompactionDetails / extractFileOperations —— 文件追踪，后续实现。
@@ -21,12 +21,12 @@ import {
 import { serializeConversation, SUMMARIZATION_SYSTEM_PROMPT } from "./utils.js";
 
 // ============================================================================
-// Message Extraction
+// 消息提取
 // ============================================================================
 
 /**
- * Extract AgentMessage from an entry if it produces one.
- * Returns undefined for entries that don't contribute to LLM context.
+ * 从条目中提取 AgentMessage（若该条目能产生消息）。
+ * 对不贡献 LLM 上下文的条目返回 undefined。
  */
 function getMessageFromEntryForCompaction(entry: SessionEntry): AgentMessage | undefined {
   if (entry.type === "compaction") {
@@ -35,18 +35,22 @@ function getMessageFromEntryForCompaction(entry: SessionEntry): AgentMessage | u
   return sessionEntryToContextMessages(entry)[0];
 }
 
-/** Result from compact() - SessionManager adds uuid/parentUuid when saving */
+/** compact() 的返回结果 —— SessionManager 保存时会补充 uuid/parentUuid */
 export interface CompactionResult<T = unknown> {
+  /** 压缩生成的摘要文本 */
   summary: string;
+  /** 压缩后第一个被保留条目的 id */
   firstKeptEntryId: string;
+  /** 压缩前的上下文 token 数 */
   tokensBefore: number;
+  /** 压缩后估算的上下文 token 数（可选） */
   estimatedTokensAfter?: number;
-  /** Extension-specific data */
+  /** 扩展专属数据 */
   details?: T;
 }
 
 // ============================================================================
-// Types
+// 类型定义
 // ============================================================================
 
 export interface CompactionSettings {
@@ -62,18 +66,18 @@ export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
 };
 
 // ============================================================================
-// Token calculation
+// Token 计算
 // ============================================================================
 
 /**
- * Calculate total context tokens from usage.
+ * 根据 usage 计算上下文 token 总数。
  */
 export function calculateContextTokens(usage: Usage): number {
   return usage.totalTokens || usage.input + usage.output + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
 }
 
 /**
- * Get usage from an assistant message if available.
+ * 从 assistant 消息中获取 usage（若存在）。
  */
 function getAssistantUsage(msg: AgentMessage): Usage | undefined {
   if (msg.role === "assistant" && "usage" in msg) {
@@ -91,7 +95,7 @@ function getAssistantUsage(msg: AgentMessage): Usage | undefined {
 }
 
 /**
- * Find the last valid assistant message usage from session entries.
+ * 从会话条目中查找最后一条有效的 assistant 消息 usage。
  */
 export function getLastAssistantUsage(entries: SessionEntry[]): Usage | undefined {
   for (let i = entries.length - 1; i >= 0; i--) {
@@ -120,7 +124,7 @@ function getLastAssistantUsageInfo(messages: AgentMessage[]): { usage: Usage; in
 }
 
 /**
- * Estimate context tokens from messages, using the last assistant usage when available.
+ * 根据消息估算上下文 token，优先使用最后一条 assistant usage。
  */
 export function estimateContextTokens(messages: AgentMessage[]): ContextUsageEstimate {
   const usageInfo = getLastAssistantUsageInfo(messages);
@@ -153,7 +157,7 @@ export function estimateContextTokens(messages: AgentMessage[]): ContextUsageEst
 }
 
 /**
- * Check if compaction should trigger based on context usage.
+ * 根据上下文占用情况判断是否应触发压缩。
  */
 export function shouldCompact(contextTokens: number, contextWindow: number, settings: CompactionSettings): boolean {
   if (!settings.enabled) return false;
@@ -161,11 +165,15 @@ export function shouldCompact(contextTokens: number, contextWindow: number, sett
 }
 
 // ============================================================================
-// Cut point detection
+// 切割点检测
 // ============================================================================
 
 const ESTIMATED_IMAGE_CHARS = 4800;
 
+/**
+ * 估算文本或图片内容的字符数。
+ * 纯字符串按长度计；数组内容按块累加：文本块计长度，图片块按固定估算值（ESTIMATED_IMAGE_CHARS）计。
+ */
 function estimateTextAndImageContentChars(content: string | Array<{ type: string; text?: string }>): number {
   if (typeof content === "string") {
     return content.length;
@@ -182,7 +190,7 @@ function estimateTextAndImageContentChars(content: string | Array<{ type: string
 }
 
 /**
- * Estimate token count for a message using chars/4 heuristic.
+ * 使用「字符数 / 4」的启发式估算单条消息的 token 数量。
  */
 export function estimateTokens(message: AgentMessage): number {
   let chars = 0;
@@ -217,6 +225,9 @@ export function estimateTokens(message: AgentMessage): number {
   return 0;
 }
 
+/**
+ * 判断某条消息是否可作为切割点：user 或 assistant 消息可以，toolResult 不行。
+ */
 function isCutPointMessage(message: AgentMessage): boolean {
   switch (message.role) {
     case "user":
@@ -228,6 +239,9 @@ function isCutPointMessage(message: AgentMessage): boolean {
   return false;
 }
 
+/**
+ * 判断某条消息是否为轮次起始消息：只有 user 消息是，assistant / toolResult 不是。
+ */
 function isTurnStartMessage(message: AgentMessage): boolean {
   switch (message.role) {
     case "user":
@@ -239,13 +253,17 @@ function isTurnStartMessage(message: AgentMessage): boolean {
   return false;
 }
 
+/**
+ * 判断某个会话条目是否为轮次起始条目：compaction 条目不是，
+ * 其余看该条目对应的上下文消息里是否存在轮次起始消息。
+ */
 function isTurnStartEntry(entry: SessionEntry): boolean {
   if (entry.type === "compaction") return false;
   return sessionEntryToContextMessages(entry).some(isTurnStartMessage);
 }
 
 /**
- * Find valid cut points: indices of context-visible user-like or assistant messages.
+ * 查找有效的切割点：上下文可见的 user 或 assistant 消息的索引。
  */
 function findValidCutPoints(entries: SessionEntry[], startIndex: number, endIndex: number): number[] {
   const cutPoints: number[] = [];
@@ -260,7 +278,12 @@ function findValidCutPoints(entries: SessionEntry[], startIndex: number, endInde
 }
 
 /**
- * Find the context-visible user-role message that starts the turn containing the given entry index.
+ * 从 entryIndex 往前（下限为 startIndex）找离它最近的轮次起点，返回该条目的索引。
+ *
+ * 一个「轮次」以 user 消息开头。传入某个条目的位置，本函数向前倒着找，
+ * 找到的第一个 user 消息就是它所属轮次的起点。
+ *
+ * 找不到（前面没有 user 消息）时返回 -1。
  */
 export function findTurnStartIndex(entries: SessionEntry[], entryIndex: number, startIndex: number): number {
   for (let i = entryIndex; i >= startIndex; i--) {
@@ -276,7 +299,7 @@ export interface CutPointResult {
 }
 
 /**
- * Find the cut point in session entries that keeps approximately `keepRecentTokens`.
+ * 在会话条目中找到切割点，使其大约保留 `keepRecentTokens` 的 token。
  */
 export function findCutPoint(
   entries: SessionEntry[],
@@ -313,7 +336,7 @@ export function findCutPoint(
     }
   }
 
-  // Scan backwards from cutIndex to include adjacent metadata entries
+  // 从 cutIndex 向前回扫，纳入相邻的元数据条目
   while (cutIndex > startIndex) {
     const prevEntry = entries[cutIndex - 1];
     if (prevEntry.type === "compaction" || sessionEntryToContextMessages(prevEntry).length > 0) break;
@@ -332,7 +355,7 @@ export function findCutPoint(
 }
 
 // ============================================================================
-// Summarization
+// 摘要生成
 // ============================================================================
 
 const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
@@ -408,7 +431,7 @@ Use this EXACT format:
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
 /**
- * Complete summarization via streamFn (V1: streamFn is required, no completeSimple fallback).
+ * 通过 streamFn 完成摘要生成（V1：streamFn 为必填，没有 completeSimple 回退）。
  */
 async function completeSummarization(
   model: Model<any>,
@@ -420,7 +443,7 @@ async function completeSummarization(
 }
 
 /**
- * Generate a summary of the conversation using the LLM.
+ * 使用 LLM 生成对话摘要。
  */
 export async function generateSummary(
   currentMessages: AgentMessage[],
@@ -479,7 +502,7 @@ export async function generateSummary(
 }
 
 // ============================================================================
-// Compaction Preparation
+// 压缩准备
 // ============================================================================
 
 export interface CompactionPreparation {
@@ -518,7 +541,11 @@ export function prepareCompaction(
   }
   const boundaryEnd = pathEntries.length;
 
-  const tokensBefore = estimateContextTokens(buildSessionContext(pathEntries).messages).tokens;
+  // pathEntries 已是「根 → 当前叶子」的路径，buildSessionContext 需要叶子 id 才能回溯。
+  // 不传 leafId 时 buildSessionPath 会直接返回空路径，导致 tokensBefore 恒为 0。
+  const tokensBefore = estimateContextTokens(
+    buildSessionContext(pathEntries, pathEntries[pathEntries.length - 1]?.id ?? null).messages,
+  ).tokens;
 
   const cutPoint = findCutPoint(pathEntries, boundaryStart, boundaryEnd, settings.keepRecentTokens);
 
@@ -558,12 +585,12 @@ export function prepareCompaction(
 }
 
 // ============================================================================
-// Main compaction function
+// 主压缩函数
 // ============================================================================
 
 /**
- * Generate summaries for compaction using prepared data.
- * Returns CompactionResult - SessionManager adds uuid/parentUuid when saving.
+ * 使用准备好的数据为压缩生成摘要。
+ * 返回 CompactionResult —— SessionManager 保存时会补充 uuid/parentUuid。
  *
  * 🔴 文件追踪（CompactionDetails / readFiles / modifiedFiles）——后续实现。
  */

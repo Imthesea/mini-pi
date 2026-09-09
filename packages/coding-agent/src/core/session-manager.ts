@@ -252,6 +252,14 @@ export function sessionEntryToContextMessages(entry: SessionEntry): AgentMessage
   return [];
 }
 
+/** 从条目列表中获取最近一次压缩摘要条目；无则返回 null */
+export function getLatestCompactionEntry(entries: SessionEntry[]): CompactionEntry | null {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].type === "compaction") return entries[i] as CompactionEntry;
+  }
+  return null;
+}
+
 /** 构建会话上下文——从当前叶子回溯，返回供 LLM 使用的消息列表 */
 export function buildSessionContext(
   entries: SessionEntry[],
@@ -584,6 +592,11 @@ export class SessionManager {
   /** 构建会话上下文——从当前叶子出发，返回供 LLM 使用的消息列表 */
   buildSessionContext(): SessionContext {
     return buildSessionContext(this.getEntries(), this.leafId);
+  }
+
+  /** 获取当前分支路径条目——从根到当前叶子（或 fromId）的顺序 */
+  getBranch(fromId?: string): SessionEntry[] {
+    return buildSessionPath(this.getEntries(), fromId ?? this.leafId);
   }
 
   // ═══════════════════════════════════════════

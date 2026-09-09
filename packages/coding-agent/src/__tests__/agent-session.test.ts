@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Agent } from "@mimi/agent";
 import { SessionManager } from "../core/session-manager.js";
+import { SettingsManager } from "../core/settings-manager.js";
 import { ModelRegistry } from "../core/model-registry.js";
 import { ModelRuntime } from "../core/model-runtime.js";
 import { AgentSession, selectTools } from "../core/agent-session.js";
@@ -70,7 +71,7 @@ describe("AgentSession", () => {
       streamFn: vi.fn().mockReturnValue(makeMockStream("hi")),
       initialState: { model: TEST_MODEL },
     });
-    const session = new AgentSession({ agent, sessionManager: sm, modelRuntime: runtime, cwd: "/tmp" });
+    const session = new AgentSession({ agent, sessionManager: sm, settingsManager: SettingsManager.inMemory(), modelRuntime: runtime, cwd: "/tmp" });
 
     process.env.MIMI_API_KEY_DEEPSEEK = "sk-test";
     await session.prompt("hello");
@@ -82,7 +83,7 @@ describe("AgentSession", () => {
 
   it("abort 调 agent.abort", () => {
     const agent = new Agent();
-    const session = new AgentSession({ agent, sessionManager: sm, modelRuntime: runtime, cwd: "/tmp" });
+    const session = new AgentSession({ agent, sessionManager: sm, settingsManager: SettingsManager.inMemory(), modelRuntime: runtime, cwd: "/tmp" });
     session.abort(); // 不抛错
   });
 
@@ -91,7 +92,7 @@ describe("AgentSession", () => {
       streamFn: vi.fn().mockReturnValue(makeMockStream("x")),
       initialState: { model: TEST_MODEL },
     });
-    const session = new AgentSession({ agent, sessionManager: sm, modelRuntime: runtime, cwd: "/tmp" });
+    const session = new AgentSession({ agent, sessionManager: sm, settingsManager: SettingsManager.inMemory(), modelRuntime: runtime, cwd: "/tmp" });
     const events: any[] = [];
     session.subscribe((e) => events.push(e));
 
@@ -110,7 +111,7 @@ describe("AgentSessionRuntime", () => {
     const rt2 = new ModelRuntime(reg);
     const sm = SessionManager.inMemory("/tmp");
     const agent = new Agent({ initialState: { model: TEST_MODEL } });
-    const session = new AgentSession({ agent, sessionManager: sm, modelRuntime: rt2, cwd: "/tmp" });
+    const session = new AgentSession({ agent, sessionManager: sm, settingsManager: SettingsManager.inMemory(), modelRuntime: rt2, cwd: "/tmp" });
     const services = { cwd: "/tmp", agentDir: "/tmp", modelRuntime: rt2, sessionManager: sm, diagnostics: [] };
     const createRuntime = async () => ({ session, services, diagnostics: [] });
     const rt = new AgentSessionRuntime(session, services, createRuntime);
@@ -127,7 +128,7 @@ describe("AgentSessionRuntime", () => {
     const rt2 = new ModelRuntime(reg);
     const sm2 = SessionManager.inMemory("/tmp");
     const agent = new Agent({ initialState: { model: TEST_MODEL } });
-    const session = new AgentSession({ agent, sessionManager: sm2, modelRuntime: rt2, cwd: "/tmp" });
+    const session = new AgentSession({ agent, sessionManager: sm2, settingsManager: SettingsManager.inMemory(), modelRuntime: rt2, cwd: "/tmp" });
     const services = { cwd: "/tmp", agentDir: "/tmp", modelRuntime: rt2, sessionManager: sm2, diagnostics: [] };
     const createRuntime = async () => ({ session, services, diagnostics: [] });
     const rt = new AgentSessionRuntime(session, services, createRuntime);
@@ -189,6 +190,7 @@ describe("AgentSession 工具/追加 prompt 注入", () => {
     const session = new AgentSession({
       agent,
       sessionManager: sm,
+      settingsManager: SettingsManager.inMemory(),
       modelRuntime: runtime,
       cwd: "/tmp",
       toolNames: ["read_file"],
@@ -217,6 +219,7 @@ describe("AgentSession 工具/追加 prompt 注入", () => {
     const session = new AgentSession({
       agent,
       sessionManager: sm,
+      settingsManager: SettingsManager.inMemory(),
       modelRuntime: runtime,
       cwd: "/tmp",
       extraTools: [makeExtraTool("custom_tool")],
@@ -230,5 +233,191 @@ describe("AgentSession 工具/追加 prompt 注入", () => {
     expect(toolNames).toContain("read_file");
     expect(toolNames).toContain("custom_tool");
     expect(toolNames).toHaveLength(9); // 8 内置 + 1 扩展
+  });
+});
+
+describe("AgentSession.compact", () => {
+  const SUMMARY_MSG = {
+    role: "assistant" as const,
+    content: [{ type: "text" as const, text: "COMPACTED_SUMMARY" }],
+    api: "openai-completions" as const,
+    provider: "deepseek" as const,
+    model: "deepseek-chat",
+    usage: { input: 1, output: 1, totalTokens: 2, cost: { input: 0, output: 0, total: 0 } },
+    stopReason: "stop" as const,
+    timestamp: Date.now(),
+  };
+
+  function assistantMsg(text: string) {
+    return {
+      role: "assistant" as const,
+      content: [{ type: "text" as const, text }],
+      api: "openai-completions" as const,
+      provider: "deepseek" as const,
+      model: "deepseek-chat",
+      usage: { input: 1, output: 1, totalTokens: 2, cost: { input: 0, output: 0, total: 0 } },
+      stopReason: "stop" as const,
+      timestamp: Date.now(),
+    };
+  }
+
+  function makeSession(settings: any = {}) {
+    const registry = new ModelRegistry();
+    registry.register(makeProvider("deepseek", [TEST_MODEL]));
+    const runtime = new ModelRuntime(registry);
+    const sm = SessionManager.inMemory("/tmp");
+    const agent = new Agent({
+      streamFn: vi.fn().mockReturnValue({ result: async () => SUMMARY_MSG }),
+      initialState: { model: TEST_MODEL },
+    });
+    const session = new AgentSession({
+      agent,
+      sessionManager: sm,
+      settingsManager: SettingsManager.inMemory(settings),
+      modelRuntime: runtime,
+      cwd: "/tmp",
+    });
+    return { agent, sm, session };
+  }
+
+  it("小会话 compact() 抛 Nothing to compact", async () => {
+    const { sm, session } = makeSession();
+    sm.appendMessage({ role: "user", content: "hi", timestamp: Date.now() } as any);
+    sm.appendMessage(assistantMsg("ok"));
+
+    await expect(session.compact()).rejects.toThrow("Nothing to compact");
+  });
+
+  it("大会话 compact() 生成摘要并重载上下文", async () => {
+    const { agent, sm, session } = makeSession({ compaction: { enabled: true, reserveTokens: 100, keepRecentTokens: 10 } });
+    sm.appendMessage({ role: "user", content: "start", timestamp: Date.now() } as any);
+    sm.appendMessage(assistantMsg("ok"));
+    sm.appendMessage({ role: "user", content: "Q" + "y".repeat(200), timestamp: Date.now() } as any);
+    sm.appendMessage(assistantMsg("A" + "z".repeat(200)));
+
+    const result = await session.compact();
+
+    expect(result.summary).toBe("COMPACTED_SUMMARY");
+
+    // session 里追加了 compaction 条目（叶子是 compaction）
+    const branch = sm.getBranch();
+    expect(branch[branch.length - 1].type).toBe("compaction");
+
+    // agent.state.messages 被重载为含 compactionSummary 的消息
+    expect(agent.state.messages.some((m: any) => m.role === "compactionSummary")).toBe(true);
+  });
+});
+
+describe("AgentSession 自动压缩 & 重试（集成）", () => {
+  /** 空流：不 yield 事件，result() 返回完整 AssistantMessage（让 agent-loop 走 result() 路径） */
+  function makeStream(message: any) {
+    return {
+      async *[Symbol.asyncIterator]() {},
+      result: async () => message,
+    };
+  }
+
+  function assistantMsg(text: string) {
+    return {
+      role: "assistant" as const,
+      content: [{ type: "text" as const, text }],
+      api: "openai-completions" as const,
+      provider: "deepseek" as const,
+      model: "deepseek-chat",
+      usage: { input: 1, output: 1, totalTokens: 2, cost: { input: 0, output: 0, total: 0 } },
+      stopReason: "stop" as const,
+      timestamp: Date.now(),
+    };
+  }
+
+  it("静默溢出（stop + usage 超窗）触发自动压缩并重载上下文", async () => {
+    const registry = new ModelRegistry();
+    registry.register(makeProvider("deepseek", [TEST_MODEL]));
+    const runtime = new ModelRuntime(registry);
+    const sm = SessionManager.inMemory("/tmp");
+
+    // 预置大会话历史，让 prepareCompaction 能切出摘要
+    for (let i = 0; i < 3; i++) {
+      sm.appendMessage({ role: "user", content: "q" + "q".repeat(100), timestamp: Date.now() } as any);
+      sm.appendMessage(assistantMsg("a" + "a".repeat(100)));
+    }
+
+    const overflowMsg = {
+      ...assistantMsg("overflow"),
+      usage: { input: 200000, output: 0, totalTokens: 200000, cost: { input: 0, output: 0, total: 0 } },
+    };
+    const summaryMsg = assistantMsg("COMPACTED");
+
+    const streamFn = vi.fn()
+      .mockReturnValueOnce(makeStream(overflowMsg))
+      .mockReturnValueOnce(makeStream(summaryMsg));
+
+    const agent = new Agent({ streamFn, initialState: { model: TEST_MODEL } });
+    const session = new AgentSession({
+      agent,
+      sessionManager: sm,
+      settingsManager: SettingsManager.inMemory({ compaction: { enabled: true, reserveTokens: 100, keepRecentTokens: 10 } }),
+      modelRuntime: runtime,
+      cwd: "/tmp",
+    });
+
+    const events: any[] = [];
+    session.subscribe((e) => events.push(e));
+
+    process.env.MIMI_API_KEY_DEEPSEEK = "sk-test";
+    await session.prompt("hi");
+    delete process.env.MIMI_API_KEY_DEEPSEEK;
+
+    expect(events.some((e) => e.type === "compaction_end" && e.reason === "overflow")).toBe(true);
+    const branch = sm.getBranch();
+    expect(branch[branch.length - 1].type).toBe("compaction");
+    expect(agent.state.messages.some((m: any) => m.role === "compactionSummary")).toBe(true);
+  });
+
+  it("可重试错误触发外层重试并最终成功", async () => {
+    const registry = new ModelRegistry();
+    registry.register(makeProvider("deepseek", [TEST_MODEL]));
+    const runtime = new ModelRuntime(registry);
+    const sm = SessionManager.inMemory("/tmp");
+
+    const errorMsg = {
+      role: "assistant" as const,
+      content: [] as const,
+      api: "openai-completions" as const,
+      provider: "deepseek" as const,
+      model: "deepseek-chat",
+      usage: { input: 1, output: 0, totalTokens: 1, cost: { input: 0, output: 0, total: 0 } },
+      stopReason: "error" as const,
+      errorMessage: "500 Internal Server Error",
+      timestamp: Date.now(),
+    };
+    const successMsg = assistantMsg("recovered");
+
+    const streamFn = vi.fn()
+      .mockReturnValueOnce(makeStream(errorMsg))
+      .mockReturnValueOnce(makeStream(errorMsg))
+      .mockReturnValueOnce(makeStream(errorMsg))
+      .mockReturnValueOnce(makeStream(successMsg));
+
+    const agent = new Agent({ streamFn, initialState: { model: TEST_MODEL } });
+    const session = new AgentSession({
+      agent,
+      sessionManager: sm,
+      settingsManager: SettingsManager.inMemory({ retry: { enabled: true, maxRetries: 1, baseDelayMs: 1 } }),
+      modelRuntime: runtime,
+      cwd: "/tmp",
+    });
+
+    const events: any[] = [];
+    session.subscribe((e) => events.push(e));
+
+    process.env.MIMI_API_KEY_DEEPSEEK = "sk-test";
+    await session.prompt("hi");
+    delete process.env.MIMI_API_KEY_DEEPSEEK;
+
+    expect(events.some((e) => e.type === "auto_retry_start")).toBe(true);
+    expect(streamFn).toHaveBeenCalledTimes(4);
+    const last = agent.state.messages[agent.state.messages.length - 1] as any;
+    expect(last.stopReason).toBe("stop");
   });
 });

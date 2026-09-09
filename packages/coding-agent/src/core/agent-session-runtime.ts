@@ -115,6 +115,7 @@ export class AgentSessionRuntime {
     this._session = new AgentSession({
       agent,
       sessionManager: sm,
+      settingsManager: this._session.settingsManager,
       modelRuntime: this._services.modelRuntime,
       cwd: this._services.cwd,
     });
